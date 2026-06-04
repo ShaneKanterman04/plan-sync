@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import type { Message, Plan } from "@/lib/types";
 import { api } from "@/components/api";
 import { ActionBar } from "@/components/ActionBar";
+import { ChangesRequestedModal } from "@/components/ChangesRequestedModal";
 import { MessageThread } from "@/components/MessageThread";
 import { PlanView } from "@/components/PlanView";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -21,6 +22,7 @@ export default function WorkspacePage() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [showChangesModal, setShowChangesModal] = useState(false);
 
   // Avoid clobbering the textarea with poll results while the human edits.
   const editingRef = useRef(false);
@@ -92,8 +94,8 @@ export default function WorkspacePage() {
     });
   }
 
-  function requestChanges() {
-    const note = window.prompt("What changes are needed?")?.trim();
+  function submitChangesRequested(note: string) {
+    setShowChangesModal(false);
     return act(async () => {
       await api(`${path}/status`, {
         method: "PATCH",
@@ -156,9 +158,16 @@ export default function WorkspacePage() {
           onCancel={cancelEdit}
           onSave={saveEdit}
           onApprove={approve}
-          onRequestChanges={requestChanges}
+          onRequestChanges={() => setShowChangesModal(true)}
         />
       )}
+
+      <ChangesRequestedModal
+        isOpen={showChangesModal}
+        busy={busy}
+        onClose={() => setShowChangesModal(false)}
+        onSubmit={submitChangesRequested}
+      />
     </main>
   );
 }
