@@ -2,10 +2,13 @@ import { assertTransition, canTransition } from "@/lib/schema";
 import {
   addMessage,
   appendProof,
+  createPluginRun,
   ensurePlan,
   getMessages,
   getPlan,
+  getPluginRun,
   getRevisions,
+  listPluginRuns,
   pollSnapshot,
   putPlanBody,
   setStatus,
@@ -124,20 +127,55 @@ describe("plan data access", () => {
 
   test("appendProof adds a final proof section and proof message", () => {
     const ws = "test-proof";
-    putPlanBody({ workspace: ws, bodyMd: "# Plan", author: "agent" });
+    const before = putPlanBody({ workspace: ws, bodyMd: "# Plan", author: "agent" });
     const result = appendProof({
       workspace: ws,
       author: "agent",
       commits: ["abc123"],
+      changedFiles: ["src/lib/db.ts"],
       validations: ["pnpm test"],
       runIds: ["12345"],
       notes: ["all green"],
     });
 
-    expect(result.plan.bodyMd).toContain("## Final Proof");
-    expect(result.plan.bodyMd).toContain("- abc123");
-    expect(result.plan.bodyMd).toContain("- pnpm test");
+    expect(result.plan.version).toBe(before.version);
+    expect(result.proofMd).toContain("## Final Proof");
+    expect(result.proofMd).toContain("- abc123");
+    expect(result.proofMd).toContain("- src/lib/db.ts");
+    expect(result.proofMd).toContain("- pnpm test");
     expect(result.message.kind).toBe("proof");
+    expect(result.message.body).toBe(result.proofMd);
+  });
+
+  test("plugin runs store agent and approval metadata", () => {
+    const ws = "test-plugin-runs";
+    putPlanBody({
+      workspace: ws,
+      bodyMd: "plan",
+      author: "agent",
+      sourceBranch: "main",
+      sourceSha: "abc123",
+    });
+    setStatus({ workspace: ws, status: "review", author: "agent" });
+    const approved = setStatus({ workspace: ws, status: "approved", author: "human" });
+
+    const run = createPluginRun({
+      id: "run-1",
+      workspace: ws,
+      agentName: "codex",
+      state: "approved",
+      planVersion: approved.version,
+      approvedVersion: approved.approvedVersion,
+      approvedBranch: approved.approvedBranch,
+      approvedSha: approved.approvedSha,
+      approvedAt: approved.approvedAt,
+    });
+
+    expect(run.agentName).toBe("codex");
+    expect(run.state).toBe("approved");
+    expect(run.approvedVersion).toBe(1);
+    expect(getPluginRun(ws, "run-1")!.approvedSha).toBe("abc123");
+    expect(listPluginRuns(ws).map((r) => r.id)).toEqual(["run-1"]);
   });
 
   test("pollSnapshot reflects status, version, and messages", () => {

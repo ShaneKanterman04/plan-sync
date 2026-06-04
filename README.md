@@ -100,15 +100,31 @@ export PLAN_WORKSPACE=<workspace-name>
 ```
 
 The agent then uses `scripts/plan` (`put`, `status`, `msg`, `poll`, `show`, …) to
-write plans, wait for your review, run a preflight check, and implement.
+write plans. Implementation is gated by the mandatory plugin commands; Codex is
+launched only after approval metadata and preflight checks pass.
 Useful additions:
 
 ```bash
 ./scripts/plan put plan.md --title "Core UI cleanup" --type plan --linked-file docs/plan.md --ref apps/web/page.tsx
-./scripts/plan preflight
+./scripts/plan status review
+./scripts/plan plugin wait --timeout 600 --interval 3
+./scripts/plan plugin preflight
+./scripts/plan plugin run-codex
 ./scripts/plan proof --commit d0d853d --validation "pnpm test passed" --run-id 26964872228
 ./scripts/plan export --format markdown --out /tmp/plan-sync-export.md
 ```
+
+For unattended handoff, run:
+
+```bash
+./scripts/plan plugin daemon
+```
+
+The daemon polls for approval, validates version/branch/SHA metadata, exports
+the approved plan, runs `$PLAN_PREFLIGHT_CMD`, launches `${PLAN_AGENT_CMD:-codex
+exec}` non-interactively, watches for human interruption, runs
+`$PLAN_VALIDATE_CMD`, posts proof, and marks the plan `done` only after
+validation passes.
 
 Open a review-only phone view by adding `?readonly=1` to a workspace URL.
 

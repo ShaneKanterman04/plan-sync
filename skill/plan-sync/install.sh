@@ -27,6 +27,17 @@ rm -rf "$DEST"
 cp -R "$SCRIPT_DIR" "$DEST"
 chmod +x "$DEST/scripts/plan" "$DEST/install.sh" 2>/dev/null || true
 
+mkdir -p "$TARGET/scripts"
+cat > "$TARGET/scripts/plan" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="\$(cd -- "\$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)"
+[ -f "\${SCRIPT_DIR}/../.claude/skills/plan-sync/config.env" ] && . "\${SCRIPT_DIR}/../.claude/skills/plan-sync/config.env"
+: "\${PLAN_SYNC_DIR:=${REPO_ROOT}}"
+exec "\${PLAN_SYNC_DIR}/scripts/plan" "\$@"
+EOF
+chmod +x "$TARGET/scripts/plan"
+
 # Record where the app lives + its URL so `plan up` can start it. Uses
 # ": ${VAR:=...}" so a real environment variable still overrides these.
 cat > "$DEST/config.env" <<EOF
@@ -34,9 +45,17 @@ cat > "$DEST/config.env" <<EOF
 : "\${PLAN_HOST:=0.0.0.0}"
 : "\${PLAN_PORT:=${PLAN_PORT:-3000}}"
 : "\${PLAN_API_URL:=http://localhost:${PLAN_PORT:-3000}}"
+: "\${PLAN_AGENT_NAME:=codex}"
+: "\${PLAN_AGENT_CMD:=codex exec}"
+: "\${PLAN_PREFLIGHT_CMD:=pnpm typecheck && pnpm lint}"
+: "\${PLAN_VALIDATE_CMD:=pnpm typecheck && pnpm lint && pnpm test}"
+: "\${PLAN_PLUGIN_POLL_INTERVAL:=3}"
+: "\${PLAN_PLUGIN_TIMEOUT:=600}"
+: "\${PLAN_APPROVAL_STRICT:=1}"
 EOF
 
 echo "Installed plan-sync skill -> $DEST"
+echo "Installed plan wrapper -> $TARGET/scripts/plan"
 echo "  app dir:  $REPO_ROOT"
 echo "  api url:  http://localhost:${PLAN_PORT:-3000}"
 echo "  bind:     0.0.0.0:${PLAN_PORT:-3000}"
@@ -54,5 +73,5 @@ cat <<EOF
 Set the workspace name for agents in this directory, e.g.:
   export PLAN_WORKSPACE=$(basename "$TARGET")
 
-Then:  $DEST/scripts/plan help
+Then:  $TARGET/scripts/plan help
 EOF

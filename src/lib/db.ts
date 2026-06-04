@@ -8,6 +8,8 @@ import type {
   Message,
   MessageKind,
   Plan,
+  PluginRun,
+  PluginRunState,
   PollSnapshot,
   Revision,
   Status,
@@ -51,8 +53,25 @@ CREATE TABLE IF NOT EXISTS messages (
   body TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS plugin_runs (
+  id TEXT PRIMARY KEY,
+  workspace TEXT NOT NULL REFERENCES plans(workspace) ON DELETE CASCADE,
+  agent_name TEXT NOT NULL,
+  state TEXT NOT NULL,
+  plan_version INTEGER,
+  approved_version INTEGER,
+  approved_branch TEXT NOT NULL DEFAULT '',
+  approved_sha TEXT NOT NULL DEFAULT '',
+  approved_at TEXT,
+  started_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  ended_at TEXT,
+  exit_code INTEGER,
+  error_text TEXT NOT NULL DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS idx_messages_ws ON messages(workspace, created_at);
 CREATE INDEX IF NOT EXISTS idx_revisions_ws ON revisions(workspace, version);
+CREATE INDEX IF NOT EXISTS idx_plugin_runs_ws ON plugin_runs(workspace, updated_at);
 `);
 
 function existingColumns(table: string) {
@@ -177,6 +196,25 @@ function messageRow(row: any): Message {
     kind: row.kind,
     body: row.body,
     createdAt: row.created_at,
+  };
+}
+
+function pluginRunRow(row: any): PluginRun {
+  return {
+    id: row.id,
+    workspace: row.workspace,
+    agentName: row.agent_name,
+    state: row.state,
+    planVersion: row.plan_version === null ? null : Number(row.plan_version),
+    approvedVersion: row.approved_version === null ? null : Number(row.approved_version),
+    approvedBranch: row.approved_branch,
+    approvedSha: row.approved_sha,
+    approvedAt: row.approved_at,
+    startedAt: row.started_at,
+    updatedAt: row.updated_at,
+    endedAt: row.ended_at,
+    exitCode: row.exit_code === null ? null : Number(row.exit_code),
+    errorText: row.error_text,
   };
 }
 
@@ -451,8 +489,119 @@ export function addMessage(input: {
   return message;
 }
 
+// --- plugin runs ---
+
+export function createPluginRun(input: {
+  id?: string;
+  workspace: string;
+  agentName: string;
+  state?: PluginRunState;
+  planVersion?: number | null;
+  approvedVersion?: number | null;
+  approvedBranch?: string;
+  approvedSha?: string;
+  approvedAt?: string | null;
+}): PluginRun {
+  ensurePlan(input.workspace);
+  const at = now();
+  const runId = cleanLine(input.id || id(), 120);
+  db.prepare(
+    `INSERT INTO plugin_runs (
+       id, workspace, agent_name, state, plan_version, approved_version,
+       approved_branch, approved_sha, approved_at, started_at, updated_at
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       agent_name = excluded.agent_name,
+       state = excluded.state,
+       plan_version = excluded.plan_version,
+       approved_version = excluded.approved_version,
+       approved_branch = excluded.approved_branch,
+       approved_sha = excluded.approved_sha,
+       approved_at = excluded.approved_at,
+       updated_at = excluded.updated_at`,
+  ).run(
+    runId,
+    input.workspace,
+    cleanLine(input.agentName, 120),
+    input.state ?? "waiting",
+    input.planVersion ?? null,
+    input.approvedVersion ?? null,
+    cleanLine(input.approvedBranch, 120),
+    cleanLine(input.approvedSha, 80),
+    input.approvedAt ?? null,
+    at,
+    at,
+  );
+  return getPluginRun(input.workspace, runId)!;
+}
+
+export function updatePluginRun(input: {
+  workspace: string;
+  id: string;
+  state?: PluginRunState;
+  planVersion?: number | null;
+  approvedVersion?: number | null;
+  approvedBranch?: string;
+  approvedSha?: string;
+  approvedAt?: string | null;
+  endedAt?: string | null;
+  exitCode?: number | null;
+  errorText?: string;
+}): PluginRun {
+  const current = getPluginRun(input.workspace, input.id);
+  if (!current) {
+    throw new Error(`Plugin run not found: ${input.id}`);
+  }
+  const at = now();
+  db.prepare(
+    `UPDATE plugin_runs SET
+       state = ?,
+       plan_version = ?,
+       approved_version = ?,
+       approved_branch = ?,
+       approved_sha = ?,
+       approved_at = ?,
+       updated_at = ?,
+       ended_at = ?,
+       exit_code = ?,
+       error_text = ?
+     WHERE workspace = ? AND id = ?`,
+  ).run(
+    input.state ?? current.state,
+    input.planVersion !== undefined ? input.planVersion : current.planVersion,
+    input.approvedVersion !== undefined ? input.approvedVersion : current.approvedVersion,
+    input.approvedBranch !== undefined ? cleanLine(input.approvedBranch, 120) : current.approvedBranch,
+    input.approvedSha !== undefined ? cleanLine(input.approvedSha, 80) : current.approvedSha,
+    input.approvedAt !== undefined ? input.approvedAt : current.approvedAt,
+    at,
+    input.endedAt !== undefined ? input.endedAt : current.endedAt,
+    input.exitCode !== undefined ? input.exitCode : current.exitCode,
+    input.errorText !== undefined ? cleanBody(input.errorText, 2_000) : current.errorText,
+    input.workspace,
+    input.id,
+  );
+  return getPluginRun(input.workspace, input.id)!;
+}
+
+export function getPluginRun(workspace: string, id: string): PluginRun | null {
+  const row = db
+    .prepare("SELECT * FROM plugin_runs WHERE workspace = ? AND id = ?")
+    .get(workspace, id);
+  return row ? pluginRunRow(row) : null;
+}
+
+export function listPluginRuns(workspace: string, limit = 20): PluginRun[] {
+  const capped = Math.min(Math.max(Math.trunc(limit) || 20, 1), 200);
+  return db
+    .prepare("SELECT * FROM plugin_runs WHERE workspace = ? ORDER BY updated_at DESC LIMIT ?")
+    .all(workspace, capped)
+    .map(pluginRunRow);
+}
+
 function proofSection(input: {
   commits: string[];
+  changedFiles: string[];
   validations: string[];
   runIds: string[];
   notes: string[];
@@ -460,6 +609,7 @@ function proofSection(input: {
   const lines = ["## Final Proof", "", `Generated: ${now()}`, ""];
   const sections: Array<[string, string[]]> = [
     ["Commits", input.commits],
+    ["Changed Files", input.changedFiles],
     ["Validation", input.validations],
     ["CI Run IDs", input.runIds],
     ["Notes", input.notes],
@@ -477,31 +627,20 @@ export function appendProof(input: {
   workspace: string;
   author: Author;
   commits: string[];
+  changedFiles: string[];
   validations: string[];
   runIds: string[];
   notes: string[];
 }): { plan: Plan; message: Message; proofMd: string } {
   const current = ensurePlan(input.workspace);
   const proofMd = proofSection(input);
-  const body = `${current.bodyMd.trimEnd()}\n\n${proofMd}\n`;
-  const plan = putPlanBody({
-    workspace: input.workspace,
-    title: current.title,
-    bodyMd: body,
-    author: input.author,
-    documentType: current.documentType,
-    linkedFile: current.linkedFile,
-    sourceBranch: current.sourceBranch,
-    sourceSha: current.sourceSha,
-    referencedFiles: current.referencedFiles,
-  });
   const message = addMessage({
     workspace: input.workspace,
     author: input.author,
     kind: "proof",
-    body: "Final proof bundle added to the plan.",
+    body: proofMd,
   });
-  return { plan, message, proofMd };
+  return { plan: current, message, proofMd };
 }
 
 // --- revisions (history) ---

@@ -17,7 +17,10 @@ writes. All write bodies are JSON and carry `"author": "agent"` or `"human"`.
 | `PATCH /api/w/:ws/status` | `{author,status,note?}` | `{ "plan": Plan }` — transition-checked (400 if illegal) |
 | `GET /api/w/:ws/messages` | `?since=<ISO>` | `{ "messages": [Message, …] }` |
 | `POST /api/w/:ws/messages` | `{author,kind?,body}` | `{ "message": Message }` |
-| `POST /api/w/:ws/proof` | `{author,commits?,validations?,runIds?,notes?}` | Appends a `Final Proof` section and posts a `proof` message |
+| `POST /api/w/:ws/proof` | `{author,commits?,changedFiles?,validations?,runIds?,notes?}` | Posts a `Final Proof` proof message without changing the approved plan version |
+| `GET /api/w/:ws/plugin-runs` | `?limit=N` | `{ "runs": [PluginRun, …] }` |
+| `POST /api/w/:ws/plugin-runs` | `{id?,agentName,state?,planVersion?,approvedVersion?,approvedBranch?,approvedSha?,approvedAt?}` | Creates/updates a plugin run record |
+| `PATCH /api/w/:ws/plugin-runs` | `{id,state?,planVersion?,approvedVersion?,approvedBranch?,approvedSha?,approvedAt?,endedAt?,exitCode?,errorText?}` | Updates a plugin run record |
 | `GET /api/w/:ws/export` | `?format=markdown\|json` | Exports the plan, messages, revisions, metadata, and stale warnings |
 | `GET /api/w/:ws/revisions` | `?limit=N` | `{ "revisions": [Revision, …] }` (newest first) |
 | `GET /api/w/:ws/poll` | — | `{ status, version, updatedAt, messageCount, lastMessageAt }` |

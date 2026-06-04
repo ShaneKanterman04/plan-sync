@@ -23,6 +23,17 @@ export const MESSAGE_KINDS = [
 ] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
 
+export const PLUGIN_RUN_STATES = [
+  "waiting",
+  "approved",
+  "preflight",
+  "implementing",
+  "interrupted",
+  "failed",
+  "done",
+] as const;
+export type PluginRunState = (typeof PLUGIN_RUN_STATES)[number];
+
 /** One living plan document per workspace. `workspace` is the primary key. */
 export type Plan = {
   workspace: string;
@@ -52,6 +63,23 @@ export type Message = {
   kind: MessageKind;
   body: string;
   createdAt: string;
+};
+
+export type PluginRun = {
+  id: string;
+  workspace: string;
+  agentName: string;
+  state: PluginRunState;
+  planVersion: number | null;
+  approvedVersion: number | null;
+  approvedBranch: string;
+  approvedSha: string;
+  approvedAt: string | null;
+  startedAt: string;
+  updatedAt: string;
+  endedAt: string | null;
+  exitCode: number | null;
+  errorText: string;
 };
 
 /** Append-only snapshot taken on each body change, for history/diffing. */

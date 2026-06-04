@@ -1,10 +1,17 @@
 import { z } from "zod";
-import { DOCUMENT_TYPES, MESSAGE_KINDS, STATUSES, type Status } from "@/lib/types";
+import {
+  DOCUMENT_TYPES,
+  MESSAGE_KINDS,
+  PLUGIN_RUN_STATES,
+  STATUSES,
+  type Status,
+} from "@/lib/types";
 
 export const authorSchema = z.enum(["agent", "human"]);
 export const statusSchema = z.enum(STATUSES);
 export const messageKindSchema = z.enum(MESSAGE_KINDS);
 export const documentTypeSchema = z.enum(DOCUMENT_TYPES);
+export const pluginRunStateSchema = z.enum(PLUGIN_RUN_STATES);
 
 export const workspaceNameSchema = z
   .string()
@@ -42,9 +49,34 @@ export const postMessageSchema = z.object({
 export const postProofSchema = z.object({
   author: authorSchema,
   commits: z.array(z.string().trim().min(1).max(300)).max(100).default([]),
+  changedFiles: z.array(z.string().trim().min(1).max(500)).max(500).default([]),
   validations: z.array(z.string().trim().min(1).max(300)).max(100).default([]),
   runIds: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
   notes: z.array(z.string().trim().min(1).max(500)).max(100).default([]),
+});
+
+export const postPluginRunSchema = z.object({
+  id: z.string().trim().min(1).max(120).optional(),
+  agentName: z.string().trim().min(1).max(120),
+  state: pluginRunStateSchema.default("waiting"),
+  planVersion: z.number().int().nonnegative().nullable().optional(),
+  approvedVersion: z.number().int().nonnegative().nullable().optional(),
+  approvedBranch: z.string().trim().max(120).optional(),
+  approvedSha: z.string().trim().max(80).optional(),
+  approvedAt: z.string().trim().max(80).nullable().optional(),
+});
+
+export const patchPluginRunSchema = z.object({
+  id: z.string().trim().min(1).max(120),
+  state: pluginRunStateSchema.optional(),
+  planVersion: z.number().int().nonnegative().nullable().optional(),
+  approvedVersion: z.number().int().nonnegative().nullable().optional(),
+  approvedBranch: z.string().trim().max(120).optional(),
+  approvedSha: z.string().trim().max(80).optional(),
+  approvedAt: z.string().trim().max(80).nullable().optional(),
+  endedAt: z.string().trim().max(80).nullable().optional(),
+  exitCode: z.number().int().nullable().optional(),
+  errorText: z.string().trim().max(2_000).optional(),
 });
 
 /**

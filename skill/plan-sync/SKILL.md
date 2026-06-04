@@ -16,7 +16,7 @@ description: >-
 plan-sync is a shared plan document for the current workspace that a human
 reviews and edits on their phone. There is exactly **one living plan per
 workspace**. You (the agent) write to it through a small HTTP API; the human
-reads, edits, and approves it; then you implement.
+reads, edits, and approves it; then the mandatory plugin gates implementation.
 
 plan-sync runs **locally**, bound to `0.0.0.0` so the human can open it from
 their phone on the same network. The skill starts the server itself.
@@ -32,6 +32,10 @@ The bundled `scripts/plan` helper reads these (env, or `config.env` written by
   needed so `plan up` can start the server)
 - `PLAN_HOST` / `PLAN_PORT` — local bind settings (`0.0.0.0:3000` by default)
 - `PLAN_API_TOKEN` — optional; only if the server has auth enabled
+- `PLAN_AGENT_NAME` — runner name recorded by the plugin (default `codex`)
+- `PLAN_AGENT_CMD` — non-interactive agent command (default `codex exec`)
+- `PLAN_PREFLIGHT_CMD` — command the plugin runs before implementation
+- `PLAN_VALIDATE_CMD` — command the plugin runs before marking done
 
 Run `./scripts/plan help` for the full command list. (`python3` is required for
 the write commands; `jq` is used for pretty output if present.)
@@ -56,17 +60,17 @@ Draft the plan in markdown, then:
 ./scripts/plan msg "Posted a plan for <task>. Ready for your review."
 ```
 Then tell the user: "Plan posted — review it at `$PLAN_API_URL` on your phone."
-**Stop and wait for the human. Do not start implementing yet.**
+**Do not start implementing directly. Implementation must go through
+`./scripts/plan plugin`.**
 
 ### 2. Wait for the human's response
-Block until the human responds — `watch` polls every few seconds and returns the
-moment they **approve**, **request changes**, edit the plan, or **reply** in the
-thread:
+Block until the human responds through the mandatory plugin gate:
 ```bash
-./scripts/plan watch --timeout 600     # polls every 3s; prints what changed, then exits
+./scripts/plan plugin wait --timeout 600 --interval 3
 ```
-(`plan poll` is a single non-blocking snapshot if you prefer to drive the loop
-yourself.) Once `watch` returns, read the details:
+It exits `0` only when the current approved plan is valid, `2` for changes
+requested, `3` for stale approval, and `124` for timeout. Once it returns,
+read the details if needed:
 ```bash
 ./scripts/plan show        # the (possibly human-edited) plan body
 ./scripts/plan messages    # the discussion thread
@@ -75,34 +79,22 @@ yourself.) Once `watch` returns, read the details:
   `plan status review`, post a short message, and wait again.
 - If `approved`: continue to the preflight check.
 
-### 3. Run a preflight check (before implementing)
-Validate the approved plan against the **current** codebase, then report:
-- Every file path the plan references exists (`test -e`); list any missing.
-- Symbols/functions the plan relies on still exist (`grep`).
-- The project's gates pass — run lint / typecheck / tests
-  (`pnpm lint && pnpm typecheck && pnpm test`, or the project's equivalent).
-
-Post the result:
+### 3. Run the plugin gate
+Use the plugin preflight and runner. The plugin validates approval version,
+branch/SHA metadata, referenced files, and `$PLAN_PREFLIGHT_CMD` before it
+launches Codex:
 ```bash
-./scripts/plan preflight
-./scripts/plan msg --kind check "Preflight: 12/12 referenced files exist, typecheck clean, tests green."
+./scripts/plan plugin preflight
+./scripts/plan plugin run-codex
 ```
-If the check fails in a way that invalidates the plan, hand back instead of
-implementing:
+For unattended handoff after posting the plan, use:
 ```bash
-./scripts/plan status changes_requested --note "Preflight failed: <why>."
+./scripts/plan plugin daemon
 ```
 
-### 4. Implement
-```bash
-./scripts/plan status implementing
-# …do the work, posting progress as you go…
-./scripts/plan msg --kind progress "Implemented step 1/3."
-# …when finished and the gates pass again…
-./scripts/plan status done
-./scripts/plan proof --commit <sha> --validation "tests passed" --run-id <run-id>
-./scripts/plan msg --kind progress "Done. <summary of what changed>."
-```
+The plugin posts check/progress/proof messages and marks status `done` only
+after `$PLAN_VALIDATE_CMD` passes. If the plan changes or the human requests
+changes during implementation, the plugin interrupts Codex and exits nonzero.
 
 ## Status lifecycle (only these transitions are legal)
 ```
