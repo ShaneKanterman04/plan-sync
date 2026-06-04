@@ -1,32 +1,8 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { evaluatePluginGate } from "../src/lib/plugin-gate";
-import type { Status } from "../src/lib/types";
-
-type Plan = {
-  workspace: string;
-  title: string;
-  bodyMd: string;
-  status: Status;
-  version: number;
-  referencedFiles: string[];
-  approvedVersion: number | null;
-  approvedBranch: string;
-  approvedSha: string;
-  approvedAt: string | null;
-};
-
-type ExportBundle = {
-  plan: Plan;
-  staleReasons: string[];
-};
-
-type GateResult =
-  | { ok: true; bundle: ExportBundle }
-  | { ok: false; code: number; reason: string; bundle?: ExportBundle };
 
 const repoCwd = process.env.PLAN_REPO_CWD || process.cwd();
 const baseUrl = (process.env.PLAN_API_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -37,7 +13,7 @@ const pollInterval = Number(process.env.PLAN_PLUGIN_POLL_INTERVAL || 3);
 const defaultTimeout = Number(process.env.PLAN_PLUGIN_TIMEOUT || 600);
 const strictApproval = process.env.PLAN_APPROVAL_STRICT !== "0";
 
-function usage(): never {
+function usage() {
   console.error(`usage:
   plan plugin wait [--timeout 600] [--interval 3]
   plan plugin preflight
@@ -52,7 +28,7 @@ function needWorkspace() {
   }
 }
 
-async function api<T>(method: string, suffix: string, body?: unknown): Promise<T> {
+async function api(method, suffix, body) {
   needWorkspace();
   const res = await fetch(`${baseUrl}/api/w/${encodeURIComponent(workspace)}${suffix}`, {
     method,
@@ -76,18 +52,18 @@ async function api<T>(method: string, suffix: string, body?: unknown): Promise<T
     const message = typeof data.error === "string" ? data.error : `HTTP ${res.status}`;
     throw new Error(message);
   }
-  return data as T;
+  return data;
 }
 
-async function postMessage(kind: string, body: string) {
+async function postMessage(kind, body) {
   await api("POST", "/messages", { author: "agent", kind, body });
 }
 
-async function setStatus(status: string, note?: string) {
+async function setStatus(status, note) {
   await api("PATCH", "/status", { author: "agent", status, note });
 }
 
-async function createRun(state: string, bundle?: ExportBundle): Promise<string> {
+async function createRun(state, bundle) {
   const runId = `${agentName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await api("POST", "/plugin-runs", {
     id: runId,
@@ -102,15 +78,15 @@ async function createRun(state: string, bundle?: ExportBundle): Promise<string> 
   return runId;
 }
 
-async function updateRun(id: string, patch: Record<string, unknown>) {
+async function updateRun(id, patch) {
   await api("PATCH", "/plugin-runs", { id, ...patch });
 }
 
-async function getBundle(): Promise<ExportBundle> {
+async function getBundle() {
   return api("GET", "/export?format=json");
 }
 
-function git(args: string[]): string {
+function git(args) {
   const result = spawnSync("git", args, { cwd: repoCwd, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : "";
 }
@@ -131,27 +107,55 @@ function inGitRepo() {
   return Boolean(git(["rev-parse", "--show-toplevel"]));
 }
 
-function unique(values: string[]) {
+function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
-function validateGate(bundle: ExportBundle): GateResult {
+function evaluatePluginGate({ plan, staleReasons, branch, sha, repo }) {
+  if (plan.status === "changes_requested") {
+    return { ok: false, code: 2, reason: "changes requested" };
+  }
+  const problems = [];
+  if (!plan.bodyMd.trim()) problems.push("plan body is empty");
+  if (plan.version <= 0) problems.push("plan does not exist");
+  if (plan.status !== "approved") problems.push(`status is ${plan.status}, not approved`);
+  if (!plan.approvedAt) problems.push("approval timestamp is missing");
+  if (plan.approvedVersion !== plan.version) {
+    problems.push(
+      `approved version ${plan.approvedVersion ?? "none"} != current version ${plan.version}`,
+    );
+  }
+  if (staleReasons.length) problems.push(...staleReasons);
+  if (strictApproval && repo && !plan.approvedBranch) problems.push("approved branch is missing");
+  if (strictApproval && repo && !plan.approvedSha) problems.push("approved SHA is missing");
+  if (plan.approvedBranch && branch && plan.approvedBranch !== branch) {
+    problems.push(`current branch ${branch} != approved branch ${plan.approvedBranch}`);
+  }
+  if (plan.approvedSha && sha && plan.approvedSha !== sha) {
+    problems.push(`current SHA ${sha} != approved SHA ${plan.approvedSha}`);
+  }
+  if (problems.length) {
+    return { ok: false, code: 3, reason: unique(problems).join("; ") };
+  }
+  return { ok: true };
+}
+
+function validateGate(bundle) {
   const result = evaluatePluginGate({
     plan: bundle.plan,
     staleReasons: bundle.staleReasons,
-    currentBranch: currentBranch(),
-    currentSha: currentSha(),
-    inGitRepo: inGitRepo(),
-    strictApproval,
+    branch: currentBranch(),
+    sha: currentSha(),
+    repo: inGitRepo(),
   });
   return result.ok ? { ok: true, bundle } : { ...result, bundle };
 }
 
-async function gate(): Promise<GateResult> {
+async function gate() {
   return validateGate(await getBundle());
 }
 
-function runShell(command: string): { code: number; output: string } {
+function runShell(command) {
   if (!command.trim()) return { code: 0, output: "" };
   const result = spawnSync(command, {
     cwd: repoCwd,
@@ -165,7 +169,7 @@ function runShell(command: string): { code: number; output: string } {
   };
 }
 
-async function runPreflight(): Promise<GateResult> {
+async function runPreflight() {
   const gated = await gate();
   if (!gated.ok) {
     await postMessage("check", `Preflight blocked: ${gated.reason}`);
@@ -198,7 +202,7 @@ async function runPreflight(): Promise<GateResult> {
   return gated;
 }
 
-async function waitForApproval(timeoutSeconds: number, intervalSeconds: number): Promise<number> {
+async function waitForApproval(timeoutSeconds, intervalSeconds) {
   const runId = await createRun("waiting");
   const started = Date.now();
   while (true) {
@@ -249,7 +253,7 @@ async function waitForApproval(timeoutSeconds: number, intervalSeconds: number):
   }
 }
 
-function promptFor(planPath: string) {
+function promptFor(planPath) {
   return `You are running under the mandatory plan-sync plugin.
 
 Approved plan file:
@@ -268,7 +272,7 @@ Rules:
 `;
 }
 
-function exportApprovedPlan(bundle: ExportBundle) {
+function exportApprovedPlan(bundle) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "plan-sync-"));
   const file = path.join(dir, `approved-plan-v${bundle.plan.version}.md`);
   const lines = [
@@ -292,10 +296,10 @@ function exportApprovedPlan(bundle: ExportBundle) {
   return file;
 }
 
-async function monitor(child: ReturnType<typeof spawn>, approvedVersion: number) {
+async function monitor(child, approvedVersion) {
   while (child.exitCode === null) {
     await new Promise((resolve) => setTimeout(resolve, pollInterval * 1000));
-    let bundle: ExportBundle;
+    let bundle;
     try {
       bundle = await getBundle();
     } catch (error) {
@@ -331,7 +335,7 @@ function changedFiles() {
   );
 }
 
-async function runCodex(): Promise<number> {
+async function runCodex() {
   const runId = await createRun("waiting");
   try {
     await updateRun(runId, { state: "preflight" });
@@ -361,7 +365,7 @@ async function runCodex(): Promise<number> {
     });
     child.stdin.end(promptFor(approvedPlanPath));
     const interruption = await monitor(child, preflight.bundle.plan.version);
-    const code = await new Promise<number>((resolve) => child.on("exit", (exitCode) => resolve(exitCode ?? 1)));
+    const code = await new Promise((resolve) => child.on("exit", (exitCode) => resolve(exitCode ?? 1)));
     if (interruption) {
       await updateRun(runId, { state: "interrupted", endedAt: new Date().toISOString(), exitCode: code || 1, errorText: interruption });
       return code || 1;
