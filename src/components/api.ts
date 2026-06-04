@@ -22,3 +22,23 @@ export function relativeTime(iso: string | null | undefined): string {
   const d = Math.round(h / 24);
   return `${d}d ago`;
 }
+
+export function formatTimestamp(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function timeLabel(iso: string | null | undefined): string {
+  const relative = relativeTime(iso);
+  const absolute = formatTimestamp(iso);
+  if (!relative) return absolute;
+  if (!absolute) return relative;
+  return `${relative} · ${absolute}`;
+}

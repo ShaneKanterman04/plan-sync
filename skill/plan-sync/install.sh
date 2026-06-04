@@ -31,12 +31,15 @@ chmod +x "$DEST/scripts/plan" "$DEST/install.sh" 2>/dev/null || true
 # ": ${VAR:=...}" so a real environment variable still overrides these.
 cat > "$DEST/config.env" <<EOF
 : "\${PLAN_SYNC_DIR:=${REPO_ROOT}}"
+: "\${PLAN_HOST:=0.0.0.0}"
+: "\${PLAN_PORT:=${PLAN_PORT:-3000}}"
 : "\${PLAN_API_URL:=http://localhost:${PLAN_PORT:-3000}}"
 EOF
 
 echo "Installed plan-sync skill -> $DEST"
 echo "  app dir:  $REPO_ROOT"
 echo "  api url:  http://localhost:${PLAN_PORT:-3000}"
+echo "  bind:     0.0.0.0:${PLAN_PORT:-3000}"
 
 if [ "$START" = "1" ]; then
   echo

@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { MESSAGE_KINDS, STATUSES, type Status } from "@/lib/types";
+import { DOCUMENT_TYPES, MESSAGE_KINDS, STATUSES, type Status } from "@/lib/types";
 
 export const authorSchema = z.enum(["agent", "human"]);
 export const statusSchema = z.enum(STATUSES);
 export const messageKindSchema = z.enum(MESSAGE_KINDS);
+export const documentTypeSchema = z.enum(DOCUMENT_TYPES);
 
 export const workspaceNameSchema = z
   .string()
@@ -19,6 +20,11 @@ export const putPlanSchema = z.object({
   author: authorSchema,
   title: z.string().trim().max(120).optional(),
   bodyMd: z.string().max(200_000),
+  documentType: documentTypeSchema.optional(),
+  linkedFile: z.string().trim().max(500).optional(),
+  sourceBranch: z.string().trim().max(120).optional(),
+  sourceSha: z.string().trim().max(80).optional(),
+  referencedFiles: z.array(z.string().trim().min(1).max(500)).max(200).optional(),
 });
 
 export const patchStatusSchema = z.object({
@@ -31,6 +37,14 @@ export const postMessageSchema = z.object({
   author: authorSchema,
   kind: messageKindSchema.optional().default("note"),
   body: z.string().trim().min(1).max(10_000),
+});
+
+export const postProofSchema = z.object({
+  author: authorSchema,
+  commits: z.array(z.string().trim().min(1).max(300)).max(100).default([]),
+  validations: z.array(z.string().trim().min(1).max(300)).max(100).default([]),
+  runIds: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
+  notes: z.array(z.string().trim().min(1).max(500)).max(100).default([]),
 });
 
 /**

@@ -21,6 +21,13 @@ function msg(id: string, body: string): Message {
   };
 }
 
+function kindMsg(id: string, body: string, kind: Message["kind"]): Message {
+  return {
+    ...msg(id, body),
+    kind,
+  };
+}
+
 describe("MessageThread", () => {
   test("Cmd+Enter submits message without clicking Send button", async () => {
     const user = userEvent.setup();
@@ -88,5 +95,26 @@ describe("MessageThread", () => {
     // The scroll target is the element rendering the last message.
     const target = scrollIntoView.mock.instances[0] as HTMLElement;
     expect(target).toHaveTextContent("second message");
+  });
+
+  test("filters messages by kind", async () => {
+    const user = userEvent.setup();
+    render(
+      <MessageThread
+        messages={[
+          kindMsg("m1", "preflight result", "check"),
+          kindMsg("m2", "final proof", "proof"),
+        ]}
+        onSend={jest.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    expect(screen.getByText("preflight result")).toBeInTheDocument();
+    expect(screen.getByText("final proof")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Filter"), "proof");
+
+    expect(screen.queryByText("preflight result")).toBeNull();
+    expect(screen.getByText("final proof")).toBeInTheDocument();
   });
 });

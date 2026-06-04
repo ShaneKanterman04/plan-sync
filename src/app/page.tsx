@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { WorkspaceSummary } from "@/lib/types";
-import { api, relativeTime } from "@/components/api";
+import { api, timeLabel } from "@/components/api";
+import { DocumentTypeBadge } from "@/components/DocumentTypeBadge";
+import { LoadError } from "@/components/LoadError";
 import { StatusBadge } from "@/components/StatusBadge";
 
 export default function Home() {
@@ -65,9 +67,7 @@ export default function Home() {
         </button>
       </form>
 
-      {error && (
-        <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
-      )}
+      {error && <LoadError message={error} url="/api/workspaces" onRetry={load} />}
 
       <ul className="space-y-2">
         {workspaces.map((w) => (
@@ -78,15 +78,26 @@ export default function Home() {
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-bold">{w.workspace}</span>
-                <StatusBadge status={w.status} />
+                <div className="flex items-center gap-1.5">
+                  <DocumentTypeBadge type={w.documentType} />
+                  <StatusBadge status={w.status} />
+                </div>
               </div>
               {w.title && <div className="mt-0.5 text-sm text-gray-600">{w.title}</div>}
+              {w.linkedFile && (
+                <div className="mt-1 truncate text-xs text-gray-500">{w.linkedFile}</div>
+              )}
               <div className="mt-1 flex items-center justify-between gap-2 text-xs text-gray-400">
                 <span>
-                  v{w.version} · {w.updatedBy} · {relativeTime(w.updatedAt)}
+                  v{w.version} · {w.updatedBy} · {timeLabel(w.updatedAt)}
                 </span>
                 {w.messageCount > 0 && <span>{w.messageCount} msg</span>}
               </div>
+              {w.staleReasons.length > 0 && (
+                <div className="mt-1 text-xs font-bold text-amber-700">
+                  Stale review metadata
+                </div>
+              )}
               {w.lastMessagePreview && (
                 <div className="mt-1 truncate text-xs text-gray-500">
                   “{w.lastMessagePreview}”

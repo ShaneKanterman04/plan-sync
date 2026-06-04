@@ -30,6 +30,7 @@ The bundled `scripts/plan` helper reads these (env, or `config.env` written by
 - `PLAN_WORKSPACE` — the workspace name for this repo (e.g. `hostlet`)
 - `PLAN_SYNC_DIR` — path to the plan-sync app directory (set by `install.sh`;
   needed so `plan up` can start the server)
+- `PLAN_HOST` / `PLAN_PORT` — local bind settings (`0.0.0.0:3000` by default)
 - `PLAN_API_TOKEN` — optional; only if the server has auth enabled
 
 Run `./scripts/plan help` for the full command list. (`python3` is required for
@@ -41,6 +42,7 @@ the write commands; `jq` is used for pretty output if present.)
 Before posting a plan, make sure the local server is up:
 ```bash
 ./scripts/plan up        # starts plan-sync on 0.0.0.0:3000 in the background if not already running
+./scripts/plan doctor    # verifies config, server health, workspace status, and phone URL
 ```
 On first run this installs deps and builds (~1 min); after that it's instant. It
 prints the phone URL (e.g. `http://192.168.x.x:3000`) — give that to the user so
@@ -82,6 +84,7 @@ Validate the approved plan against the **current** codebase, then report:
 
 Post the result:
 ```bash
+./scripts/plan preflight
 ./scripts/plan msg --kind check "Preflight: 12/12 referenced files exist, typecheck clean, tests green."
 ```
 If the check fails in a way that invalidates the plan, hand back instead of
@@ -97,6 +100,7 @@ implementing:
 ./scripts/plan msg --kind progress "Implemented step 1/3."
 # …when finished and the gates pass again…
 ./scripts/plan status done
+./scripts/plan proof --commit <sha> --validation "tests passed" --run-id <run-id>
 ./scripts/plan msg --kind progress "Done. <summary of what changed>."
 ```
 

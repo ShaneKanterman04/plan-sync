@@ -6,6 +6,7 @@ import WorkspacePage from "./page";
 
 jest.mock("next/navigation", () => ({
   useParams: () => ({ workspace: "demo" }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 // Markdown pulls in ESM-only deps that don't matter for this test; stub it out.
@@ -54,6 +55,15 @@ const plan: Plan = {
   workspace: "demo",
   title: "Initial plan",
   bodyMd: "# Initial plan body",
+  documentType: "plan",
+  linkedFile: "",
+  sourceBranch: "main",
+  sourceSha: "abc123",
+  referencedFiles: [],
+  approvedVersion: null,
+  approvedBranch: "",
+  approvedSha: "",
+  approvedAt: null,
   status: "review",
   version: 1,
   createdAt: "2026-06-04T00:00:00.000Z",

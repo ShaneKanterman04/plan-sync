@@ -8,7 +8,9 @@ phone → the agent picks up your changes, runs a check, and implements.
 
 - **Mobile UI** for humans: rendered markdown, inline edit, approve / request
   changes, and a discussion thread.
-- **Simple JSON API** for agents.
+- **Simple JSON API** for agents, including export and final-proof helpers.
+- **Diagnostics** for local server/workspace state so agents can tell whether
+  the app, workspace, or phone view is stuck.
 - **A downloadable skill** (`skill/plan-sync/`) any agent can drop into a
   workspace's `.claude/skills/` to drive the API.
 
@@ -30,6 +32,7 @@ Quality gates: `pnpm typecheck && pnpm lint && pnpm test`.
 
 ```bash
 curl -s localhost:3000/api/health        # {"ok":true}
+curl -s localhost:3000/api/doctor        # safe runtime/workspace diagnostics
 
 # agent writes a plan and hands it off
 curl -s -X PUT localhost:3000/api/w/hostlet -H 'Content-Type: application/json' \
@@ -50,7 +53,10 @@ See `skill/plan-sync/reference/api.md` for the full API.
 ## Data model
 
 One row per workspace in `plans` (the living document), plus a `revisions`
-snapshot per body change and a `messages` thread. Status lifecycle:
+snapshot per body change and a `messages` thread. The plan row also stores
+document type (`plan`, `summary`, or `retrospective`), an optional linked file,
+referenced files, source branch/SHA, and approval metadata for stale-plan
+warnings. Status lifecycle:
 
 ```
 draft → review → {approved | changes_requested} → implementing → done
@@ -88,11 +94,23 @@ export PLAN_WORKSPACE=<workspace-name>
 
 ```bash
 ./scripts/plan up        # start plan-sync on 0.0.0.0:3000 (background); prints the phone URL
+./scripts/plan serve --host 0.0.0.0 --port 3000 --workspace hostlet
 ./scripts/plan down      # stop it
+./scripts/plan doctor    # config, health, phone URL, workspace status
 ```
 
 The agent then uses `scripts/plan` (`put`, `status`, `msg`, `poll`, `show`, …) to
 write plans, wait for your review, run a preflight check, and implement.
+Useful additions:
+
+```bash
+./scripts/plan put plan.md --title "Core UI cleanup" --type plan --linked-file docs/plan.md --ref apps/web/page.tsx
+./scripts/plan preflight
+./scripts/plan proof --commit d0d853d --validation "pnpm test passed" --run-id 26964872228
+./scripts/plan export --format markdown --out /tmp/plan-sync-export.md
+```
+
+Open a review-only phone view by adding `?readonly=1` to a workspace URL.
 
 The data (your plans) lives in `$DATA_DIR` (default `./.data`) and persists
 across restarts.

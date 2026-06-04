@@ -4,6 +4,7 @@ import path from "node:path";
 import { assertTransition } from "@/lib/schema";
 import type {
   Author,
+  DocumentType,
   Message,
   MessageKind,
   Plan,
@@ -54,6 +55,30 @@ CREATE INDEX IF NOT EXISTS idx_messages_ws ON messages(workspace, created_at);
 CREATE INDEX IF NOT EXISTS idx_revisions_ws ON revisions(workspace, version);
 `);
 
+function existingColumns(table: string) {
+  return new Set(
+    db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all()
+      .map((row: any) => String(row.name)),
+  );
+}
+
+function addColumnIfMissing(table: string, column: string, definition: string) {
+  if (existingColumns(table).has(column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+addColumnIfMissing("plans", "document_type", "TEXT NOT NULL DEFAULT 'plan'");
+addColumnIfMissing("plans", "linked_file", "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("plans", "source_branch", "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("plans", "source_sha", "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("plans", "referenced_files", "TEXT NOT NULL DEFAULT '[]'");
+addColumnIfMissing("plans", "approved_version", "INTEGER");
+addColumnIfMissing("plans", "approved_branch", "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("plans", "approved_sha", "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("plans", "approved_at", "TEXT");
+
 function id() {
   return crypto.randomUUID();
 }
@@ -75,6 +100,51 @@ function cleanBody(input: unknown, max = 10_000) {
   return String(input ?? "").trim().slice(0, max);
 }
 
+function cleanFileList(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  for (const value of input) {
+    const path = cleanLine(value, 500);
+    if (path) seen.add(path);
+  }
+  return [...seen].slice(0, 200);
+}
+
+function parseFileList(input: unknown): string[] {
+  if (typeof input !== "string" || !input.trim()) return [];
+  try {
+    return cleanFileList(JSON.parse(input));
+  } catch {
+    return [];
+  }
+}
+
+export function staleReasons(plan: Pick<
+  Plan,
+  | "status"
+  | "version"
+  | "sourceBranch"
+  | "sourceSha"
+  | "approvedVersion"
+  | "approvedBranch"
+  | "approvedSha"
+>): string[] {
+  if (!["approved", "implementing", "done"].includes(plan.status)) return [];
+  const reasons: string[] = [];
+  if (plan.approvedVersion !== null && plan.version > plan.approvedVersion) {
+    reasons.push(`plan changed after approval: v${plan.approvedVersion} → v${plan.version}`);
+  }
+  if (plan.approvedSha && plan.sourceSha && plan.approvedSha !== plan.sourceSha) {
+    reasons.push(`git SHA changed after approval: ${plan.approvedSha} → ${plan.sourceSha}`);
+  }
+  if (plan.approvedBranch && plan.sourceBranch && plan.approvedBranch !== plan.sourceBranch) {
+    reasons.push(
+      `git branch changed after approval: ${plan.approvedBranch} → ${plan.sourceBranch}`,
+    );
+  }
+  return reasons;
+}
+
 // --- row mappers (snake_case row -> camelCase domain type) ---
 
 function planRow(row: any): Plan {
@@ -82,6 +152,15 @@ function planRow(row: any): Plan {
     workspace: row.workspace,
     title: row.title,
     bodyMd: row.body_md,
+    documentType: row.document_type,
+    linkedFile: row.linked_file,
+    sourceBranch: row.source_branch,
+    sourceSha: row.source_sha,
+    referencedFiles: parseFileList(row.referenced_files),
+    approvedVersion: row.approved_version === null ? null : Number(row.approved_version),
+    approvedBranch: row.approved_branch,
+    approvedSha: row.approved_sha,
+    approvedAt: row.approved_at,
     status: row.status,
     version: row.version,
     createdAt: row.created_at,
@@ -127,17 +206,20 @@ export function listWorkspaces(): WorkspaceSummary[] {
   return plans.map((p) => {
     const s = stats.get(p.workspace) as any;
     const m = lastMsg.get(p.workspace) as any;
-    return {
-      workspace: p.workspace,
-      title: p.title,
-      status: p.status,
-      version: p.version,
+      return {
+        workspace: p.workspace,
+        title: p.title,
+        documentType: p.documentType,
+        linkedFile: p.linkedFile,
+        status: p.status,
+        version: p.version,
       updatedAt: p.updatedAt,
       updatedBy: p.updatedBy,
-      messageCount: Number(s?.count ?? 0),
-      lastMessageAt: s?.last ?? null,
-      lastMessagePreview: m ? cleanLine(m.body, 80) : null,
-    };
+        messageCount: Number(s?.count ?? 0),
+        lastMessageAt: s?.last ?? null,
+        lastMessagePreview: m ? cleanLine(m.body, 80) : null,
+        staleReasons: staleReasons(p),
+      };
   });
 }
 
@@ -166,6 +248,11 @@ export function putPlanBody(input: {
   title?: string;
   bodyMd: string;
   author: Author;
+  documentType?: DocumentType;
+  linkedFile?: string;
+  sourceBranch?: string;
+  sourceSha?: string;
+  referencedFiles?: string[];
 }): Plan {
   const at = now();
   const tx = db.transaction(() => {
@@ -173,18 +260,53 @@ export function putPlanBody(input: {
     const nextVersion = (current?.version ?? 0) + 1;
     const title = input.title !== undefined ? cleanLine(input.title, 120) : current?.title ?? "";
     const body = String(input.bodyMd ?? "").slice(0, 200_000);
+    const documentType = input.documentType ?? current?.documentType ?? "plan";
+    const linkedFile =
+      input.linkedFile !== undefined ? cleanLine(input.linkedFile, 500) : current?.linkedFile ?? "";
+    const sourceBranch =
+      input.sourceBranch !== undefined
+        ? cleanLine(input.sourceBranch, 120)
+        : current?.sourceBranch ?? "";
+    const sourceSha =
+      input.sourceSha !== undefined ? cleanLine(input.sourceSha, 80) : current?.sourceSha ?? "";
+    const referencedFiles =
+      input.referencedFiles !== undefined
+        ? cleanFileList(input.referencedFiles)
+        : current?.referencedFiles ?? [];
     const status = current?.status ?? "draft";
     const createdAt = current?.createdAt ?? at;
     db.prepare(
-      `INSERT INTO plans (workspace, title, body_md, status, version, created_at, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO plans (
+         workspace, title, body_md, document_type, linked_file, source_branch, source_sha,
+         referenced_files, status, version, created_at, updated_at, updated_by
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace) DO UPDATE SET
          title = excluded.title,
          body_md = excluded.body_md,
+         document_type = excluded.document_type,
+         linked_file = excluded.linked_file,
+         source_branch = excluded.source_branch,
+         source_sha = excluded.source_sha,
+         referenced_files = excluded.referenced_files,
          version = excluded.version,
          updated_at = excluded.updated_at,
          updated_by = excluded.updated_by`,
-    ).run(input.workspace, title, body, status, nextVersion, createdAt, at, input.author);
+    ).run(
+      input.workspace,
+      title,
+      body,
+      documentType,
+      linkedFile,
+      sourceBranch,
+      sourceSha,
+      JSON.stringify(referencedFiles),
+      status,
+      nextVersion,
+      createdAt,
+      at,
+      input.author,
+    );
     db.prepare(
       `INSERT INTO revisions (id, workspace, version, body_md, status, author, note, created_at)
        VALUES (?, ?, ?, ?, ?, ?, '', ?)`,
@@ -246,9 +368,34 @@ export function setStatus(input: {
   const plan = ensurePlan(input.workspace);
   assertTransition(plan.status, input.status);
   const tx = db.transaction(() => {
-    db.prepare(
-      "UPDATE plans SET status = ?, updated_at = ?, updated_by = ? WHERE workspace = ?",
-    ).run(input.status, at, input.author, input.workspace);
+    if (input.status === "approved") {
+      db.prepare(
+        `UPDATE plans SET
+           status = ?, updated_at = ?, updated_by = ?,
+           approved_version = ?, approved_branch = ?, approved_sha = ?, approved_at = ?
+         WHERE workspace = ?`,
+      ).run(
+        input.status,
+        at,
+        input.author,
+        plan.version,
+        plan.sourceBranch,
+        plan.sourceSha,
+        at,
+        input.workspace,
+      );
+    } else if (["draft", "review", "changes_requested"].includes(input.status)) {
+      db.prepare(
+        `UPDATE plans SET
+           status = ?, updated_at = ?, updated_by = ?,
+           approved_version = NULL, approved_branch = '', approved_sha = '', approved_at = NULL
+         WHERE workspace = ?`,
+      ).run(input.status, at, input.author, input.workspace);
+    } else {
+      db.prepare(
+        "UPDATE plans SET status = ?, updated_at = ?, updated_by = ? WHERE workspace = ?",
+      ).run(input.status, at, input.author, input.workspace);
+    }
     const kind = statusMessageKind(input.status);
     const note = input.note?.trim();
     if (kind) {
@@ -302,6 +449,59 @@ export function addMessage(input: {
     "INSERT INTO messages (id, workspace, author, kind, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
   ).run(message.id, message.workspace, message.author, message.kind, message.body, message.createdAt);
   return message;
+}
+
+function proofSection(input: {
+  commits: string[];
+  validations: string[];
+  runIds: string[];
+  notes: string[];
+}) {
+  const lines = ["## Final Proof", "", `Generated: ${now()}`, ""];
+  const sections: Array<[string, string[]]> = [
+    ["Commits", input.commits],
+    ["Validation", input.validations],
+    ["CI Run IDs", input.runIds],
+    ["Notes", input.notes],
+  ];
+  for (const [title, items] of sections) {
+    if (items.length === 0) continue;
+    lines.push(`### ${title}`, "");
+    for (const item of items) lines.push(`- ${item}`);
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd();
+}
+
+export function appendProof(input: {
+  workspace: string;
+  author: Author;
+  commits: string[];
+  validations: string[];
+  runIds: string[];
+  notes: string[];
+}): { plan: Plan; message: Message; proofMd: string } {
+  const current = ensurePlan(input.workspace);
+  const proofMd = proofSection(input);
+  const body = `${current.bodyMd.trimEnd()}\n\n${proofMd}\n`;
+  const plan = putPlanBody({
+    workspace: input.workspace,
+    title: current.title,
+    bodyMd: body,
+    author: input.author,
+    documentType: current.documentType,
+    linkedFile: current.linkedFile,
+    sourceBranch: current.sourceBranch,
+    sourceSha: current.sourceSha,
+    referencedFiles: current.referencedFiles,
+  });
+  const message = addMessage({
+    workspace: input.workspace,
+    author: input.author,
+    kind: "proof",
+    body: "Final proof bundle added to the plan.",
+  });
+  return { plan, message, proofMd };
 }
 
 // --- revisions (history) ---

@@ -1,5 +1,8 @@
 export type Author = "agent" | "human";
 
+export const DOCUMENT_TYPES = ["plan", "summary", "retrospective"] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
 export const STATUSES = [
   "draft",
   "review",
@@ -16,6 +19,7 @@ export const MESSAGE_KINDS = [
   "request_changes",
   "check",
   "progress",
+  "proof",
 ] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
 
@@ -24,6 +28,15 @@ export type Plan = {
   workspace: string;
   title: string;
   bodyMd: string;
+  documentType: DocumentType;
+  linkedFile: string;
+  sourceBranch: string;
+  sourceSha: string;
+  referencedFiles: string[];
+  approvedVersion: number | null;
+  approvedBranch: string;
+  approvedSha: string;
+  approvedAt: string | null;
   status: Status;
   /** Bumps on every body change (a human edit or agent rewrite). */
   version: number;
@@ -56,6 +69,8 @@ export type Revision = {
 export type WorkspaceSummary = {
   workspace: string;
   title: string;
+  documentType: DocumentType;
+  linkedFile: string;
   status: Status;
   version: number;
   updatedAt: string;
@@ -63,6 +78,7 @@ export type WorkspaceSummary = {
   messageCount: number;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
+  staleReasons: string[];
 };
 
 /** The cheap snapshot agents poll to detect a human response. */

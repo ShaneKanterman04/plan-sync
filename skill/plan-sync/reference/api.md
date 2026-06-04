@@ -9,18 +9,22 @@ writes. All write bodies are JSON and carry `"author": "agent"` or `"human"`.
 | Method · Path | Body | Response |
 |---|---|---|
 | `GET /api/health` | — | `{ "ok": true }` |
+| `GET /api/doctor` | — | Safe runtime/workspace diagnostics |
 | `GET /api/workspaces` | — | `{ "workspaces": [Summary, …] }` |
 | `GET /api/w/:ws` | — | `{ "plan": Plan, "messages": [Message, …] }` (auto-creates an empty draft) |
-| `PUT /api/w/:ws` | `{author,title?,bodyMd}` | `{ "plan": Plan }` — bumps `version`, snapshots a revision |
+| `PUT /api/w/:ws` | `{author,title?,bodyMd,documentType?,linkedFile?,sourceBranch?,sourceSha?,referencedFiles?}` | `{ "plan": Plan }` — bumps `version`, snapshots a revision |
 | `GET /api/w/:ws/status` | — | `{ status, version, updatedAt }` |
 | `PATCH /api/w/:ws/status` | `{author,status,note?}` | `{ "plan": Plan }` — transition-checked (400 if illegal) |
 | `GET /api/w/:ws/messages` | `?since=<ISO>` | `{ "messages": [Message, …] }` |
 | `POST /api/w/:ws/messages` | `{author,kind?,body}` | `{ "message": Message }` |
+| `POST /api/w/:ws/proof` | `{author,commits?,validations?,runIds?,notes?}` | Appends a `Final Proof` section and posts a `proof` message |
+| `GET /api/w/:ws/export` | `?format=markdown\|json` | Exports the plan, messages, revisions, metadata, and stale warnings |
 | `GET /api/w/:ws/revisions` | `?limit=N` | `{ "revisions": [Revision, …] }` (newest first) |
 | `GET /api/w/:ws/poll` | — | `{ status, version, updatedAt, messageCount, lastMessageAt }` |
 
 `status` ∈ `draft | review | changes_requested | approved | implementing | done`.
-`kind` ∈ `note | approve | request_changes | check | progress`.
+`documentType` ∈ `plan | summary | retrospective`.
+`kind` ∈ `note | approve | request_changes | check | progress | proof`.
 
 Status transitions (PATCH to anything else → HTTP 400):
 ```

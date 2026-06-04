@@ -48,6 +48,8 @@ const first: WorkspaceSummary[] = [
   {
     workspace: "alpha",
     title: "Alpha plan",
+    documentType: "plan",
+    linkedFile: "",
     status: "review",
     version: 1,
     updatedBy: "agent",
@@ -55,6 +57,7 @@ const first: WorkspaceSummary[] = [
     messageCount: 0,
     lastMessageAt: null,
     lastMessagePreview: null,
+    staleReasons: [],
   },
 ];
 
@@ -63,6 +66,8 @@ const second: WorkspaceSummary[] = [
   {
     workspace: "bravo",
     title: "Bravo plan",
+    documentType: "summary",
+    linkedFile: "docs/bravo.md",
     status: "draft",
     version: 1,
     updatedBy: "agent",
@@ -70,6 +75,7 @@ const second: WorkspaceSummary[] = [
     messageCount: 0,
     lastMessageAt: null,
     lastMessagePreview: null,
+    staleReasons: [],
   },
 ];
 

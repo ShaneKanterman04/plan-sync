@@ -2,26 +2,51 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import type { Message, Plan } from "@/lib/types";
-import { api } from "@/components/api";
+import { useParams, useSearchParams } from "next/navigation";
+import { DOCUMENT_TYPES, type DocumentType, type Message, type Plan } from "@/lib/types";
+import { api, timeLabel } from "@/components/api";
 import { ActionBar } from "@/components/ActionBar";
 import { ChangesRequestedModal } from "@/components/ChangesRequestedModal";
+import { DocumentTypeBadge } from "@/components/DocumentTypeBadge";
+import { LoadError } from "@/components/LoadError";
 import { MessageThread } from "@/components/MessageThread";
 import { PlanView } from "@/components/PlanView";
+import { StaleWarning } from "@/components/StaleWarning";
 import { StatusBadge } from "@/components/StatusBadge";
+
+function staleReasons(plan: Plan): string[] {
+  if (!["approved", "implementing", "done"].includes(plan.status)) return [];
+  const reasons: string[] = [];
+  if (plan.approvedVersion !== null && plan.version > plan.approvedVersion) {
+    reasons.push(`Plan changed after approval: v${plan.approvedVersion} -> v${plan.version}`);
+  }
+  if (plan.approvedSha && plan.sourceSha && plan.approvedSha !== plan.sourceSha) {
+    reasons.push(`Git SHA changed after approval: ${plan.approvedSha} -> ${plan.sourceSha}`);
+  }
+  if (plan.approvedBranch && plan.sourceBranch && plan.approvedBranch !== plan.sourceBranch) {
+    reasons.push(
+      `Git branch changed after approval: ${plan.approvedBranch} -> ${plan.sourceBranch}`,
+    );
+  }
+  return reasons;
+}
 
 export default function WorkspacePage() {
   const params = useParams<{ workspace: string }>();
+  const searchParams = useSearchParams();
   const workspace = Array.isArray(params.workspace) ? params.workspace[0] : params.workspace;
   const path = `/api/w/${encodeURIComponent(workspace)}`;
+  const readOnly = searchParams.get("readonly") === "1";
 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [draftDocumentType, setDraftDocumentType] = useState<DocumentType>("plan");
+  const [draftLinkedFile, setDraftLinkedFile] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [connectionError, setConnectionError] = useState("");
   const [showChangesModal, setShowChangesModal] = useState(false);
 
   // Avoid clobbering the textarea with poll results while the human edits.
@@ -48,7 +73,14 @@ export default function WorkspacePage() {
     // event over SSE, instead of polling every 5s.
     const source = new EventSource(`${path}/events`);
     sourceRef.current = source;
-    source.addEventListener("changed", () => load());
+    source.addEventListener("ready", () => setConnectionError(""));
+    source.addEventListener("changed", () => {
+      setConnectionError("");
+      load();
+    });
+    source.onerror = () => {
+      setConnectionError(`Live updates disconnected from ${path}/events.`);
+    };
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
     return () => {
@@ -72,8 +104,10 @@ export default function WorkspacePage() {
   }
 
   function startEdit() {
-    if (!plan) return;
+    if (!plan || readOnly) return;
     setDraft(plan.bodyMd);
+    setDraftDocumentType(plan.documentType);
+    setDraftLinkedFile(plan.linkedFile);
     setEditing(true);
   }
 
@@ -85,13 +119,19 @@ export default function WorkspacePage() {
     return act(async () => {
       await api(path, {
         method: "PUT",
-        body: JSON.stringify({ author: "human", bodyMd: draft }),
+        body: JSON.stringify({
+          author: "human",
+          bodyMd: draft,
+          documentType: draftDocumentType,
+          linkedFile: draftLinkedFile,
+        }),
       });
       setEditing(false);
     });
   }
 
   function approve() {
+    if (readOnly) return;
     return act(async () => {
       await api(`${path}/status`, {
         method: "PATCH",
@@ -101,6 +141,7 @@ export default function WorkspacePage() {
   }
 
   function submitChangesRequested(note: string) {
+    if (readOnly) return;
     setShowChangesModal(false);
     return act(async () => {
       await api(`${path}/status`, {
@@ -115,6 +156,7 @@ export default function WorkspacePage() {
   }
 
   async function sendMessage(body: string) {
+    if (readOnly) return;
     setBusy(true);
     setError("");
     try {
@@ -154,20 +196,84 @@ export default function WorkspacePage() {
         {plan?.title && <p className="text-sm text-gray-600">{plan.title}</p>}
       </header>
 
-      {error && (
-        <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
+      {error && <LoadError message={error} url={path} onRetry={load} />}
+      {connectionError && (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {connectionError} Refreshing on focus is still enabled.
+        </p>
+      )}
+      {readOnly && (
+        <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          Read-only review mode. Editing, approval, and messages are disabled.
+        </p>
       )}
 
       {plan ? (
         <>
+          <StaleWarning reasons={staleReasons(plan)} />
+          <section className="mb-3 rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-600">
+            <div className="flex flex-wrap items-center gap-2">
+              <DocumentTypeBadge type={plan.documentType} />
+              {plan.linkedFile && <span className="break-all">{plan.linkedFile}</span>}
+            </div>
+            <div className="mt-2 grid gap-1 text-xs text-gray-400">
+              <span>Updated {timeLabel(plan.updatedAt)}</span>
+              {plan.sourceBranch && <span>Branch {plan.sourceBranch}</span>}
+              {plan.sourceSha && <span>SHA {plan.sourceSha}</span>}
+              {plan.approvedAt && <span>Approved {timeLabel(plan.approvedAt)}</span>}
+            </div>
+            {plan.referencedFiles.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs font-bold text-gray-500">
+                  Referenced files ({plan.referencedFiles.length})
+                </summary>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-xs">
+                  {plan.referencedFiles.map((file) => (
+                    <li key={file} className="break-all">
+                      {file}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </section>
+          {editing && (
+            <section className="mb-3 grid gap-2 rounded-xl border border-gray-200 bg-white px-3 py-3">
+              <label className="grid gap-1 text-sm font-bold text-gray-700">
+                Document type
+                <select
+                  value={draftDocumentType}
+                  onChange={(event) => setDraftDocumentType(event.target.value as DocumentType)}
+                  className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-base font-normal outline-none focus:border-gray-500"
+                >
+                  {DOCUMENT_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-bold text-gray-700">
+                Linked file
+                <input
+                  value={draftLinkedFile}
+                  onChange={(event) => setDraftLinkedFile(event.target.value)}
+                  placeholder="docs/reports/example.md"
+                  className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-base font-normal outline-none focus:border-gray-500"
+                />
+              </label>
+            </section>
+          )}
           <PlanView editing={editing} body={plan.bodyMd} draft={draft} onDraftChange={setDraft} />
-          {!editing && <MessageThread messages={messages} onSend={sendMessage} />}
+          {!editing && (
+            <MessageThread messages={messages} onSend={sendMessage} readOnly={readOnly} />
+          )}
         </>
       ) : (
         <p className="text-sm text-gray-400">Loading…</p>
       )}
 
-      {plan && (
+      {plan && !readOnly && (
         <ActionBar
           status={plan.status}
           editing={editing}

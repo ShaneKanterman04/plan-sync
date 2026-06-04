@@ -1,6 +1,7 @@
 import { assertTransition, canTransition } from "@/lib/schema";
 import {
   addMessage,
+  appendProof,
   ensurePlan,
   getMessages,
   getPlan,
@@ -8,6 +9,7 @@ import {
   pollSnapshot,
   putPlanBody,
   setStatus,
+  staleReasons,
 } from "@/lib/db";
 
 describe("status transitions", () => {
@@ -58,6 +60,27 @@ describe("plan data access", () => {
     expect(p.status).toBe("draft");
   });
 
+  test("putPlanBody stores document metadata and referenced files", () => {
+    const ws = "test-metadata";
+    const p = putPlanBody({
+      workspace: ws,
+      title: "Retrospective",
+      bodyMd: "notes",
+      author: "agent",
+      documentType: "retrospective",
+      linkedFile: "docs/report.md",
+      sourceBranch: "main",
+      sourceSha: "abc123",
+      referencedFiles: ["src/app/page.tsx", "src/app/page.tsx", "README.md"],
+    });
+
+    expect(p.documentType).toBe("retrospective");
+    expect(p.linkedFile).toBe("docs/report.md");
+    expect(p.sourceBranch).toBe("main");
+    expect(p.sourceSha).toBe("abc123");
+    expect(p.referencedFiles).toEqual(["src/app/page.tsx", "README.md"]);
+  });
+
   test("setStatus enforces transitions and logs messages", () => {
     const ws = "test-status";
     putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
@@ -68,8 +91,53 @@ describe("plan data access", () => {
 
     setStatus({ workspace: ws, status: "approved", author: "human", note: "lgtm" });
     expect(getPlan(ws)!.status).toBe("approved");
+    expect(getPlan(ws)!.approvedVersion).toBe(1);
     const msgs = getMessages(ws);
     expect(msgs.some((m) => m.kind === "approve" && m.body === "lgtm")).toBe(true);
+  });
+
+  test("staleReasons reports plan and git changes after approval", () => {
+    const ws = "test-stale";
+    putPlanBody({
+      workspace: ws,
+      bodyMd: "plan",
+      author: "agent",
+      sourceBranch: "main",
+      sourceSha: "abc123",
+    });
+    setStatus({ workspace: ws, status: "review", author: "agent" });
+    setStatus({ workspace: ws, status: "approved", author: "human" });
+    const updated = putPlanBody({
+      workspace: ws,
+      bodyMd: "plan changed",
+      author: "agent",
+      sourceBranch: "staging",
+      sourceSha: "def456",
+    });
+
+    expect(staleReasons(updated)).toEqual([
+      "plan changed after approval: v1 → v2",
+      "git SHA changed after approval: abc123 → def456",
+      "git branch changed after approval: main → staging",
+    ]);
+  });
+
+  test("appendProof adds a final proof section and proof message", () => {
+    const ws = "test-proof";
+    putPlanBody({ workspace: ws, bodyMd: "# Plan", author: "agent" });
+    const result = appendProof({
+      workspace: ws,
+      author: "agent",
+      commits: ["abc123"],
+      validations: ["pnpm test"],
+      runIds: ["12345"],
+      notes: ["all green"],
+    });
+
+    expect(result.plan.bodyMd).toContain("## Final Proof");
+    expect(result.plan.bodyMd).toContain("- abc123");
+    expect(result.plan.bodyMd).toContain("- pnpm test");
+    expect(result.message.kind).toBe("proof");
   });
 
   test("pollSnapshot reflects status, version, and messages", () => {

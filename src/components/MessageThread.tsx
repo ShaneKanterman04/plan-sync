@@ -1,19 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Message } from "@/lib/types";
-import { relativeTime } from "@/components/api";
+import type { Message, MessageKind } from "@/lib/types";
+import { MESSAGE_KINDS } from "@/lib/types";
+import { timeLabel } from "@/components/api";
 
 export function MessageThread({
   messages,
   onSend,
+  readOnly = false,
 }: {
   messages: Message[];
   onSend: (body: string) => Promise<void>;
+  readOnly?: boolean;
 }) {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
+  const [kindFilter, setKindFilter] = useState<MessageKind | "all">("all");
   const lastMessageRef = useRef<HTMLDivElement>(null);
+  const visibleMessages =
+    kindFilter === "all" ? messages : messages.filter((message) => message.kind === kindFilter);
 
   // Scroll the newest message into view whenever a message is added — both when
   // the human sends one and when SSE/polling delivers an agent reply. Keyed on
@@ -47,14 +53,35 @@ export function MessageThread({
       <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">
         Discussion
       </h2>
+      <div className="mb-3 flex items-center gap-2">
+        <label htmlFor="message-kind-filter" className="text-xs font-bold text-gray-500">
+          Filter
+        </label>
+        <select
+          id="message-kind-filter"
+          value={kindFilter}
+          onChange={(event) => setKindFilter(event.target.value as MessageKind | "all")}
+          className="min-h-10 rounded-lg border border-gray-300 bg-white px-2 text-sm outline-none focus:border-gray-500"
+        >
+          <option value="all">All messages</option>
+          {MESSAGE_KINDS.map((kind) => (
+            <option key={kind} value={kind}>
+              {kind.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="space-y-2">
         {messages.length === 0 && (
           <p className="text-sm text-gray-400">No messages yet.</p>
         )}
-        {messages.map((m, i) => (
+        {messages.length > 0 && visibleMessages.length === 0 && (
+          <p className="text-sm text-gray-400">No messages match this filter.</p>
+        )}
+        {visibleMessages.map((m, i) => (
           <div
             key={m.id}
-            ref={i === messages.length - 1 ? lastMessageRef : undefined}
+            ref={i === visibleMessages.length - 1 ? lastMessageRef : undefined}
             className={`rounded-xl border px-3 py-2 text-sm ${
               m.author === "agent"
                 ? "border-blue-100 bg-blue-50"
@@ -70,12 +97,18 @@ export function MessageThread({
                   </span>
                 )}
               </span>
-              <span className="text-gray-400">{relativeTime(m.createdAt)}</span>
+              <span className="text-gray-400">{timeLabel(m.createdAt)}</span>
             </div>
             <div className="whitespace-pre-wrap text-gray-800">{m.body}</div>
           </div>
         ))}
       </div>
+      {readOnly && (
+        <p className="mt-3 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-500">
+          Read-only review mode is enabled.
+        </p>
+      )}
+      {!readOnly && (
       <div className="mt-3 flex gap-2">
         <textarea
           value={body}
@@ -98,6 +131,7 @@ export function MessageThread({
           Send
         </button>
       </div>
+      )}
     </section>
   );
 }
