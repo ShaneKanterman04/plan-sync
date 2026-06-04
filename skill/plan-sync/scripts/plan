@@ -47,7 +47,10 @@ Plan (needs PLAN_WORKSPACE="\${PLAN_WORKSPACE}"):
   plan status NEW [--note N]   set status: draft|review|changes_requested|approved|implementing|done
   plan msg [--kind K] "TEXT"   post a message (kind: note|check|progress|approve|request_changes)
   plan messages [--since ISO]  list messages
-  plan poll                    cheap status+message snapshot (loop on this while waiting)
+  plan poll                    one-shot status+message snapshot
+  plan watch [--interval N] [--timeout S]
+                               BLOCK, polling every N s (default 3), until the human approves,
+                               requests changes, edits, or replies — then print what changed
   plan revisions               body revision history
 
 Env: PLAN_API_URL, PLAN_WORKSPACE, PLAN_SYNC_DIR, PLAN_PORT, PLAN_API_TOKEN
@@ -197,6 +200,49 @@ case "$cmd" in
     ;;
   poll)
     need_ws; curl_json GET "/poll" | pp
+    ;;
+  watch|wait)
+    need_ws; need_py
+    interval="${PLAN_WATCH_INTERVAL:-3}"; wtimeout=0
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --interval) interval="${2:-3}"; shift 2 ;;
+        --timeout) wtimeout="${2:-0}"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    getf() { printf '%s' "$1" | python3 -c "import sys,json
+try:
+    d=json.load(sys.stdin); v=d.get('$2'); print('' if v is None else v)
+except Exception:
+    print('')" 2>/dev/null; }
+    snap="$(curl_json GET "/poll")"
+    s0="$(getf "$snap" status)"; v0="$(getf "$snap" version)"; c0="$(getf "$snap" messageCount)"; last0="$(getf "$snap" lastMessageAt)"
+    echo "watching '${WS}' (status=${s0:-?}, v${v0:-?}, ${c0:-0} msgs) — polling every ${interval}s…" >&2
+    started="$(date +%s 2>/dev/null || echo 0)"
+    while true; do
+      sleep "$interval"
+      cur="$(curl_json GET "/poll" 2>/dev/null || echo '')"
+      [ -n "$cur" ] || continue
+      s="$(getf "$cur" status)"; [ -n "$s" ] || continue
+      v="$(getf "$cur" version)"; c="$(getf "$cur" messageCount)"
+      if [ "$s" != "$s0" ] || [ "$v" != "$v0" ] || [ "$c" != "$c0" ]; then
+        echo "change: status ${s0}→${s} · v${v0}→${v} · msgs ${c0}→${c}" >&2
+        printf '%s\n' "$cur" | pp
+        if [ -n "$last0" ]; then new="$(curl_json GET "/messages?since=${last0}")"; else new="$(curl_json GET "/messages")"; fi
+        echo "--- new messages ---" >&2
+        if command -v jq >/dev/null 2>&1; then
+          printf '%s' "$new" | jq -r '.messages[] | "[\(.author)/\(.kind)] \(.body)"'
+        else
+          printf '%s\n' "$new"
+        fi
+        exit 0
+      fi
+      if [ "$wtimeout" != "0" ]; then
+        now="$(date +%s 2>/dev/null || echo 0)"
+        [ $((now - started)) -ge "$wtimeout" ] && { echo "watch: timed out after ${wtimeout}s with no change" >&2; exit 2; }
+      fi
+    done
     ;;
   revisions)
     need_ws; curl_json GET "/revisions" | pp

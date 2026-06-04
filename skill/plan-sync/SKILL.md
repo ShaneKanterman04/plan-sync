@@ -56,13 +56,15 @@ Draft the plan in markdown, then:
 Then tell the user: "Plan posted — review it at `$PLAN_API_URL` on your phone."
 **Stop and wait for the human. Do not start implementing yet.**
 
-### 2. Pick up the human's response
-When asked to check, or while polling:
+### 2. Wait for the human's response
+Block until the human responds — `watch` polls every few seconds and returns the
+moment they **approve**, **request changes**, edit the plan, or **reply** in the
+thread:
 ```bash
-./scripts/plan poll        # cheap: status + message counts
+./scripts/plan watch --timeout 600     # polls every 3s; prints what changed, then exits
 ```
-When `status` becomes `approved` or `changes_requested`, or a new human message
-appears, read the details:
+(`plan poll` is a single non-blocking snapshot if you prefer to drive the loop
+yourself.) Once `watch` returns, read the details:
 ```bash
 ./scripts/plan show        # the (possibly human-edited) plan body
 ./scripts/plan messages    # the discussion thread
