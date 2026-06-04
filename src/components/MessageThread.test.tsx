@@ -2,11 +2,23 @@ import "@testing-library/jest-dom";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MessageThread } from "@/components/MessageThread";
+import type { Message } from "@/lib/types";
 
 function setup() {
   const onSend = jest.fn().mockResolvedValue(undefined);
   const utils = render(<MessageThread messages={[]} onSend={onSend} />);
   return { onSend, ...utils };
+}
+
+function msg(id: string, body: string): Message {
+  return {
+    id,
+    workspace: "demo",
+    author: "human",
+    kind: "note",
+    body,
+    createdAt: "2026-06-04T00:00:00.000Z",
+  };
 }
 
 describe("MessageThread", () => {
@@ -45,5 +57,36 @@ describe("MessageThread", () => {
 
     expect(onSend).not.toHaveBeenCalled();
     expect(textarea).toHaveValue("line one\nline two");
+  });
+
+  test("scrolls to the latest message when new messages are added via SSE or send", () => {
+    const scrollIntoView = jest.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    const onSend = jest.fn().mockResolvedValue(undefined);
+    const first = msg("m1", "first message");
+    const { rerender } = render(
+      <MessageThread messages={[first]} onSend={onSend} />,
+    );
+
+    scrollIntoView.mockClear();
+
+    // Re-render with the same messages: count is unchanged, so no scroll.
+    rerender(<MessageThread messages={[first]} onSend={onSend} />);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    // A 2nd message arrives (e.g. via SSE or after send) — scroll to it.
+    const second = msg("m2", "second message");
+    rerender(<MessageThread messages={[first, second]} onSend={onSend} />);
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "nearest",
+    });
+
+    // The scroll target is the element rendering the last message.
+    const target = scrollIntoView.mock.instances[0] as HTMLElement;
+    expect(target).toHaveTextContent("second message");
   });
 });

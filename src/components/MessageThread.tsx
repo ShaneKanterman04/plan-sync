@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Message } from "@/lib/types";
 import { relativeTime } from "@/components/api";
 
@@ -13,6 +13,18 @@ export function MessageThread({
 }) {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
+  const lastMessageRef = useRef<HTMLDivElement>(null);
+
+  // Scroll the newest message into view whenever a message is added — both when
+  // the human sends one and when SSE/polling delivers an agent reply. Keyed on
+  // the message count so a plain re-render with the same messages is a no-op.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    lastMessageRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
+  }, [messages.length]);
 
   async function send() {
     const text = body.trim();
@@ -39,9 +51,10 @@ export function MessageThread({
         {messages.length === 0 && (
           <p className="text-sm text-gray-400">No messages yet.</p>
         )}
-        {messages.map((m) => (
+        {messages.map((m, i) => (
           <div
             key={m.id}
+            ref={i === messages.length - 1 ? lastMessageRef : undefined}
             className={`rounded-xl border px-3 py-2 text-sm ${
               m.author === "agent"
                 ? "border-blue-100 bg-blue-50"
