@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { WorkspaceSummary } from "@/lib/types";
@@ -13,7 +13,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const data = await api<{ workspaces: WorkspaceSummary[] }>("/api/workspaces");
       setWorkspaces(data.workspaces);
@@ -21,18 +21,24 @@ export default function Home() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load.");
     }
-  }
+  }, []);
 
+  const sourceRef = useRef<EventSource | null>(null);
   useEffect(() => {
     load();
-    const timer = setInterval(load, 5000);
+    // Real-time push: refetch whenever any write route broadcasts a 'changed'
+    // event over SSE, instead of polling every 5s.
+    const source = new EventSource("/api/workspaces/events");
+    sourceRef.current = source;
+    source.addEventListener("changed", () => load());
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
     return () => {
-      clearInterval(timer);
+      source.close();
+      sourceRef.current = null;
       window.removeEventListener("focus", onFocus);
     };
-  }, []);
+  }, [load]);
 
   function open(e: React.FormEvent) {
     e.preventDefault();

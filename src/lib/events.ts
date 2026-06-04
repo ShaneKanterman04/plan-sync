@@ -13,6 +13,14 @@ type Client = {
 const encoder = new TextEncoder();
 const clients = new Set<Client>();
 
+/**
+ * Reserved channel for the workspace-list view. Any per-workspace change also
+ * affects the list (status, version, last message), so `broadcast` fans out to
+ * subscribers of this channel too. The workspace name schema rejects this value,
+ * so it can never collide with a real workspace.
+ */
+export const LIST_CHANNEL = "*list*";
+
 export function createEventStream(workspace: string) {
   return new ReadableStream({
     start(controller) {
@@ -32,8 +40,11 @@ export function broadcast(workspace: string, kind = "changed") {
   const payload = encoder.encode(
     `event: ${kind}\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`,
   );
+  // Notify both the workspace's own subscribers and the list view, since any
+  // workspace change also alters the list (unless we're broadcasting the list).
+  const channels = workspace === LIST_CHANNEL ? [LIST_CHANNEL] : [workspace, LIST_CHANNEL];
   for (const client of [...clients]) {
-    if (client.workspace !== workspace) continue;
+    if (!channels.includes(client.workspace)) continue;
     try {
       client.controller.enqueue(payload);
     } catch {
