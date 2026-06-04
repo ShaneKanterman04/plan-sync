@@ -41,16 +41,22 @@ export default function WorkspacePage() {
     }
   }, [path]);
 
+  const sourceRef = useRef<EventSource | null>(null);
   useEffect(() => {
     load();
-    const timer = setInterval(load, 5000);
+    // Real-time push: refetch whenever a write route broadcasts a 'changed'
+    // event over SSE, instead of polling every 5s.
+    const source = new EventSource(`${path}/events`);
+    sourceRef.current = source;
+    source.addEventListener("changed", () => load());
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
     return () => {
-      clearInterval(timer);
+      source.close();
+      sourceRef.current = null;
       window.removeEventListener("focus", onFocus);
     };
-  }, [load]);
+  }, [load, path]);
 
   async function act(fn: () => Promise<void>) {
     setBusy(true);
