@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { Message, Plan } from "@/lib/types";
 import WorkspacePage from "./page";
 
@@ -90,6 +91,14 @@ function jsonResponse(payload: unknown): Response {
   } as unknown as Response;
 }
 
+function errorResponse(status: number, payload: unknown = {}): Response {
+  return {
+    ok: false,
+    status,
+    json: async () => payload,
+  } as unknown as Response;
+}
+
 // The removed polling used `setInterval(load, 5000)`. Isolate any 5s-delay
 // timer calls so framework-internal timers (with other delays) don't count.
 function pollingTimerCalls(spy: jest.SpyInstance) {
@@ -176,5 +185,71 @@ describe("WorkspacePage SSE wiring", () => {
 
     unmount();
     expect(source.closed).toBe(true);
+  });
+});
+
+describe("WorkspacePage sendMessage error handling", () => {
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    (global as unknown as { EventSource: typeof MockEventSource }).EventSource =
+      MockEventSource;
+    fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("sendMessage error shows in error banner and preserves textarea", async () => {
+    const user = userEvent.setup();
+
+    // 1) initial load succeeds, 2) POST /messages fails with 500,
+    // 3) the reload that sendMessage attempts after the failure also fails 500.
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ plan, messages: firstMessages }))
+      .mockResolvedValueOnce(errorResponse(500))
+      .mockResolvedValueOnce(errorResponse(500))
+      .mockResolvedValue(errorResponse(500));
+
+    render(<WorkspacePage />);
+
+    // Wait for the initial successful load to render the plan + thread.
+    await screen.findByText("Original message");
+    const callsAfterInitialLoad = fetchMock.mock.calls.length;
+
+    // Simulate the human sending a message.
+    const textarea = screen.getByPlaceholderText("Reply to the agent…");
+    await user.type(textarea, "please change the API");
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    await user.click(sendButton);
+
+    // 1) The error banner shows the failure message.
+    await screen.findByText("Request failed.");
+
+    // 3) The textarea draft is preserved so the human can retry.
+    expect(textarea).toHaveValue("please change the API");
+
+    // 4) The page attempted to POST and then reload after the failure.
+    const posted = fetchMock.mock.calls.some(
+      ([url, init]) =>
+        url === "/api/w/demo/messages" &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(posted).toBe(true);
+    // A subsequent reload GET to /api/w/demo was attempted (and also failed 500).
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(
+        callsAfterInitialLoad + 1,
+      ),
+    );
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === "/api/w/demo").length,
+    ).toBeGreaterThan(1);
+
+    // 2) The Send button returned to a non-busy state once the attempt settled.
+    await waitFor(() => expect(sendButton).not.toBeDisabled());
   });
 });

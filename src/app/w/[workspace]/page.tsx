@@ -115,10 +115,22 @@ export default function WorkspacePage() {
   }
 
   async function sendMessage(body: string) {
-    await api(`${path}/messages`, {
-      method: "POST",
-      body: JSON.stringify({ author: "human", body }),
-    });
+    setBusy(true);
+    setError("");
+    try {
+      await api(`${path}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ author: "human", body }),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to send.");
+      // Refresh so the thread reflects server state, then re-throw so
+      // MessageThread keeps the draft text for retry.
+      await load();
+      throw e;
+    } finally {
+      setBusy(false);
+    }
     await load();
   }
 

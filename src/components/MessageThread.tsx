@@ -21,6 +21,10 @@ export function MessageThread({
     try {
       await onSend(text);
       setBody("");
+    } catch {
+      // onSend surfaces the failure (error banner) and we keep the draft text
+      // so the human can retry; swallow here so the click handler doesn't
+      // produce an unhandled rejection.
     } finally {
       setBusy(false);
     }
