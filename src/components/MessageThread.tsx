@@ -1,0 +1,80 @@
+"use client";
+
+import { useState } from "react";
+import type { Message } from "@/lib/types";
+import { relativeTime } from "@/components/api";
+
+export function MessageThread({
+  messages,
+  onSend,
+}: {
+  messages: Message[];
+  onSend: (body: string) => Promise<void>;
+}) {
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function send() {
+    const text = body.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    try {
+      await onSend(text);
+      setBody("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6">
+      <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">
+        Discussion
+      </h2>
+      <div className="space-y-2">
+        {messages.length === 0 && (
+          <p className="text-sm text-gray-400">No messages yet.</p>
+        )}
+        {messages.map((m) => (
+          <div
+            key={m.id}
+            className={`rounded-xl border px-3 py-2 text-sm ${
+              m.author === "agent"
+                ? "border-blue-100 bg-blue-50"
+                : "border-gray-200 bg-white"
+            }`}
+          >
+            <div className="mb-0.5 flex items-center justify-between gap-2 text-xs">
+              <span className="font-bold text-gray-700">
+                {m.author === "agent" ? "🤖 Agent" : "🧑 You"}
+                {m.kind !== "note" && (
+                  <span className="ml-1 font-medium text-gray-400">
+                    · {m.kind.replace(/_/g, " ")}
+                  </span>
+                )}
+              </span>
+              <span className="text-gray-400">{relativeTime(m.createdAt)}</span>
+            </div>
+            <div className="whitespace-pre-wrap text-gray-800">{m.body}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Reply to the agent…"
+          rows={2}
+          className="min-h-12 flex-1 resize-y rounded-xl border border-gray-300 bg-white px-3 py-2 text-base outline-none focus:border-gray-500"
+        />
+        <button
+          onClick={send}
+          disabled={busy || !body.trim()}
+          className="min-h-12 self-stretch rounded-xl bg-gray-900 px-4 text-base font-bold text-white disabled:opacity-40"
+        >
+          Send
+        </button>
+      </div>
+    </section>
+  );
+}

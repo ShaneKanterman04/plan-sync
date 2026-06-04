@@ -1,0 +1,14 @@
+node_modules
+.next
+.data
+.git
+.env*
+!.env.example
+coverage
+npm-debug.log*
+.pnpm-debug.log*
+.DS_Store
+*.tsbuildinfo
+README.md
+skill
+deploy

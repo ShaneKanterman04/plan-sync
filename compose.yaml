@@ -1,0 +1,21 @@
+# hostlet-compatible Compose: a single app service + a named volume only.
+# (hostlet rejects host ports, host networking, custom networks, container_name,
+# and host bind mounts. The named volume is reused across redeploys, so data
+# persists.) hostlet provides the public URL and routes to the service's port.
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      NODE_ENV: production
+    volumes:
+      - plansync-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  plansync-data:

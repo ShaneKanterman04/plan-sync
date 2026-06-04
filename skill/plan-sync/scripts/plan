@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# plan — drive the plan-sync API for the current workspace.
+#
+# Env:
+#   PLAN_API_URL    base URL of the plan-sync app (default http://localhost:3000)
+#   PLAN_WORKSPACE  workspace name (required, e.g. hostlet)
+#   PLAN_API_TOKEN  optional bearer token (only if the server has auth enabled)
+
+API="${PLAN_API_URL:-http://localhost:3000}"
+WS="${PLAN_WORKSPACE:-}"
+TOKEN="${PLAN_API_TOKEN:-}"
+
+die() { echo "plan: $*" >&2; exit 1; }
+need_py() { command -v python3 >/dev/null 2>&1 || die "python3 is required for this command"; }
+
+usage() {
+  cat >&2 <<EOF
+plan — drive the plan-sync API for workspace "\${PLAN_WORKSPACE}"
+
+  plan get                     show plan + messages (JSON)
+  plan show                    print the plan body markdown
+  plan put [FILE] [--title T]  write the plan body from FILE or stdin (author=agent)
+  plan status                  show current status/version
+  plan status NEW [--note N]   set status: draft|review|changes_requested|approved|implementing|done
+  plan msg [--kind K] "TEXT"   post a message (kind: note|check|progress|approve|request_changes)
+  plan messages [--since ISO]  list messages
+  plan poll                    cheap status+message snapshot (loop on this while waiting)
+  plan revisions               body revision history
+
+Env: PLAN_API_URL, PLAN_WORKSPACE (required), PLAN_API_TOKEN (optional)
+EOF
+}
+
+[ -n "$WS" ] || { usage; die "set PLAN_WORKSPACE (e.g. export PLAN_WORKSPACE=hostlet)"; }
+BASE="${API%/}/api/w/${WS}"
+
+AUTH=()
+[ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer ${TOKEN}")
+
+pp() { if command -v jq >/dev/null 2>&1; then jq .; else cat; fi; }
+
+# curl_json METHOD PATH [BODY] — no -f, so HTTP error bodies (the {error} JSON) are shown.
+curl_json() {
+  local m="$1" p="$2" b="${3:-}"
+  if [ -n "$b" ]; then
+    curl -sS -X "$m" "${BASE}${p}" -H 'Content-Type: application/json' "${AUTH[@]}" -d "$b"
+  else
+    curl -sS -X "$m" "${BASE}${p}" "${AUTH[@]}"
+  fi
+}
+
+# json_obj KEY=VALUE... — encode a JSON object (values are raw strings, may contain spaces/newlines).
+json_obj() {
+  need_py
+  python3 -c '
+import json, sys
+o = {}
+for a in sys.argv[1:]:
+    k, _, v = a.partition("=")
+    o[k] = v
+print(json.dumps(o))' "$@"
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  get)
+    curl_json GET "" | pp
+    ;;
+  show)
+    need_py
+    curl_json GET "" | python3 -c 'import sys, json; print(json.load(sys.stdin)["plan"]["bodyMd"])'
+    ;;
+  put)
+    title=""; file="-"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --title) title="${2:-}"; shift 2 ;;
+        *) file="$1"; shift ;;
+      esac
+    done
+    [ "$file" = "-" ] && src=/dev/stdin || src="$file"
+    body_md="$(cat "$src")"
+    args=(author=agent "bodyMd=${body_md}")
+    [ -n "$title" ] && args+=("title=${title}")
+    curl_json PUT "" "$(json_obj "${args[@]}")" | pp
+    ;;
+  status)
+    if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+      new="$1"; shift; note=""
+      while [ $# -gt 0 ]; do
+        case "$1" in --note) note="${2:-}"; shift 2 ;; *) shift ;; esac
+      done
+      args=(author=agent "status=${new}")
+      [ -n "$note" ] && args+=("note=${note}")
+      curl_json PATCH "/status" "$(json_obj "${args[@]}")" | pp
+    else
+      curl_json GET "/status" | pp
+    fi
+    ;;
+  msg)
+    kind="note"
+    while [ $# -gt 0 ]; do
+      case "$1" in --kind) kind="${2:-}"; shift 2 ;; *) break ;; esac
+    done
+    text="${1:-}"
+    [ -n "$text" ] || die 'usage: plan msg [--kind K] "message"'
+    curl_json POST "/messages" "$(json_obj author=agent "kind=${kind}" "body=${text}")" | pp
+    ;;
+  messages)
+    since=""
+    while [ $# -gt 0 ]; do
+      case "$1" in --since) since="${2:-}"; shift 2 ;; *) shift ;; esac
+    done
+    curl_json GET "/messages${since:+?since=${since}}" | pp
+    ;;
+  poll)
+    curl_json GET "/poll" | pp
+    ;;
+  revisions)
+    curl_json GET "/revisions" | pp
+    ;;
+  help|--help|-h)
+    usage; exit 0
+    ;;
+  *)
+    usage; die "unknown command: ${cmd}"
+    ;;
+esac

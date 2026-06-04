@@ -1,0 +1,6 @@
+# better-sqlite3 is a native module; pnpm 10 blocks build scripts unless allowed.
+onlyBuiltDependencies:
+  - better-sqlite3
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
