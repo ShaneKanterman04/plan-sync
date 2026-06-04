@@ -41,6 +41,12 @@ export function ChangesRequestedModal({
           ref={textareaRef}
           value={note}
           onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !busy) {
+              e.preventDefault();
+              onSubmit(note.trim());
+            }
+          }}
           placeholder="What changes are needed?"
           rows={4}
           className="mt-3 min-h-24 w-full resize-y rounded-xl border border-gray-300 bg-white px-3 py-2 text-base outline-none focus:border-gray-500"

@@ -63,6 +63,12 @@ export function MessageThread({
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void send();
+            }
+          }}
           placeholder="Reply to the agent…"
           rows={2}
           className="min-h-12 flex-1 resize-y rounded-xl border border-gray-300 bg-white px-3 py-2 text-base outline-none focus:border-gray-500"
