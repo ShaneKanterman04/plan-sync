@@ -363,9 +363,12 @@ async function runCodex() {
       stdio: ["pipe", "inherit", "inherit"],
       env: { ...process.env, PLAN_APPROVED_PLAN_PATH: approvedPlanPath, PLAN_PLUGIN_RUN_ID: runId },
     });
+    const exitPromise = new Promise((resolve) =>
+      child.once("exit", (exitCode) => resolve(exitCode ?? 1)),
+    );
     child.stdin.end(promptFor(approvedPlanPath));
     const interruption = await monitor(child, preflight.bundle.plan.version);
-    const code = await new Promise((resolve) => child.on("exit", (exitCode) => resolve(exitCode ?? 1)));
+    const code = await exitPromise;
     if (interruption) {
       await updateRun(runId, { state: "interrupted", endedAt: new Date().toISOString(), exitCode: code || 1, errorText: interruption });
       return code || 1;
