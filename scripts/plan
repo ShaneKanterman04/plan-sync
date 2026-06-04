@@ -7,6 +7,10 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 if [ "${1:-}" = "plugin" ]; then
   export PLAN_REPO_CWD="${PLAN_REPO_CWD:-$PWD}"
   cd "$REPO_ROOT"
+  if [ ! -x "node_modules/.bin/tsx" ]; then
+    corepack enable >/dev/null 2>&1 || true
+    pnpm install --frozen-lockfile
+  fi
   pnpm exec tsx scripts/plan-plugin.ts "$@"
   exit $?
 fi
