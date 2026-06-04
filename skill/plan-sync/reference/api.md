@@ -1,7 +1,8 @@
 # plan-sync API reference
 
-Base URL: `$PLAN_API_URL` (e.g. `https://plan.example.com`). One living plan per
-workspace; `:ws` is the workspace name. Auth is open by default; if
+Base URL: `$PLAN_API_URL` — the app runs locally (default `http://localhost:3000`;
+reach it from a phone at `http://<lan-ip>:3000`). One living plan per workspace;
+`:ws` is the workspace name. Auth is open by default; if
 `PLAN_API_TOKEN` is set on the server, send `Authorization: Bearer <token>` on
 writes. All write bodies are JSON and carry `"author": "agent"` or `"human"`.
 

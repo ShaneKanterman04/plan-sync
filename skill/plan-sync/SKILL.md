@@ -18,18 +18,33 @@ reviews and edits on their phone. There is exactly **one living plan per
 workspace**. You (the agent) write to it through a small HTTP API; the human
 reads, edits, and approves it; then you implement.
 
+plan-sync runs **locally**, bound to `0.0.0.0` so the human can open it from
+their phone on the same network. The skill starts the server itself.
+
 ## Setup
 
-The bundled `scripts/plan` helper reads these environment variables:
+The bundled `scripts/plan` helper reads these (env, or `config.env` written by
+`install.sh`):
 
-- `PLAN_API_URL` — the plan-sync base URL (e.g. `https://plan.example.com`)
+- `PLAN_API_URL` — base URL of the app (default `http://localhost:3000`)
 - `PLAN_WORKSPACE` — the workspace name for this repo (e.g. `hostlet`)
+- `PLAN_SYNC_DIR` — path to the plan-sync app directory (set by `install.sh`;
+  needed so `plan up` can start the server)
 - `PLAN_API_TOKEN` — optional; only if the server has auth enabled
 
 Run `./scripts/plan help` for the full command list. (`python3` is required for
 the write commands; `jq` is used for pretty output if present.)
 
 ## The loop
+
+### 0. Start the server
+Before posting a plan, make sure the local server is up:
+```bash
+./scripts/plan up        # starts plan-sync on 0.0.0.0:3000 in the background if not already running
+```
+On first run this installs deps and builds (~1 min); after that it's instant. It
+prints the phone URL (e.g. `http://192.168.x.x:3000`) — give that to the user so
+they can review on their phone. (`plan down` stops it; `plan restart` cycles it.)
 
 ### 1. Write the plan and hand it off
 Draft the plan in markdown, then:

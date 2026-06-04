@@ -66,41 +66,33 @@ To lock it down, set `PLAN_API_TOKEN`; every write route then requires
 `Authorization: Bearer <token>` with no code changes. The skill's `scripts/plan`
 forwards `PLAN_API_TOKEN` when set.
 
+## How it runs
+
+plan-sync runs **locally**, bound to `0.0.0.0` so you can open it from your phone
+on the same Wi-Fi (`http://<lan-ip>:3000`). There's no hosting/tunnel to set up —
+the agent skill starts the server itself.
+
 ## The agent skill
 
 The skill lives in this repo at `skill/plan-sync/`. Install it into any
-workspace:
+workspace (this also records where the app lives and starts the server):
 
 ```bash
-skill/plan-sync/install.sh /path/to/your/workspace
+skill/plan-sync/install.sh /path/to/your/workspace      # add --no-start to skip auto-start
 # then, in that workspace:
-export PLAN_API_URL=https://<your-hostlet-app-url>
-export PLAN_WORKSPACE=hostlet
+export PLAN_WORKSPACE=<workspace-name>
 ```
 
-The agent then uses `scripts/plan` (`put`, `status`, `msg`, `poll`, `show`, …)
-to write plans, wait for your review, run a preflight check, and implement.
-
-## Deploy via self-hosted hostlet
-
-plan-sync ships hostlet-ready: `hostlet.yml` (compose runtime), a compliant
-`compose.yaml` (named volume only — no host ports/bind mounts), and a
-`Dockerfile`. hostlet builds the repo, gives it a public tunnel URL, reuses the
-`plansync-data` volume across redeploys (**data is preserved**), and can
-auto-deploy on push.
-
-**1. Update the self-hosted hostlet first** (on the VM):
+`install.sh` writes a `config.env` with `PLAN_SYNC_DIR` (this repo) and
+`PLAN_API_URL` (`http://localhost:3000`), so the agent can manage the server:
 
 ```bash
-hostlet backup            # safety snapshot
-hostlet update check      # see if a new release is available
-hostlet update            # apply it
-hostlet status && hostlet doctor
+./scripts/plan up        # start plan-sync on 0.0.0.0:3000 (background); prints the phone URL
+./scripts/plan down      # stop it
 ```
 
-**2. Add plan-sync as an app in the hostlet UI:** connect this GitHub repo, pick
-the branch, enable auto-deploy. hostlet reads `hostlet.yml` (port 3000, health
-`/api/health`), builds, and assigns a public URL.
+The agent then uses `scripts/plan` (`put`, `status`, `msg`, `poll`, `show`, …) to
+write plans, wait for your review, run a preflight check, and implement.
 
-**3. Point agents at it:** set `PLAN_API_URL` to the app's public URL in each
-workspace that installs the skill.
+The data (your plans) lives in `$DATA_DIR` (default `./.data`) and persists
+across restarts.

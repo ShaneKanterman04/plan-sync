@@ -1,24 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# plan — drive the plan-sync API for the current workspace.
+# plan — drive the plan-sync API and manage its local server.
 #
-# Env:
-#   PLAN_API_URL    base URL of the plan-sync app (default http://localhost:3000)
-#   PLAN_WORKSPACE  workspace name (required, e.g. hostlet)
+# plan-sync runs locally, bound to 0.0.0.0 (reachable from your phone on the
+# same network). This helper can start/stop that server and read/write the
+# shared plan for the current workspace.
+#
+# Config (env, or skill config.env written by install.sh):
+#   PLAN_API_URL    base URL of the app           (default http://localhost:3000)
+#   PLAN_WORKSPACE  workspace name                (required for plan read/write)
+#   PLAN_SYNC_DIR   path to the plan-sync app dir (required for `up`)
+#   PLAN_PORT       port to serve on              (default 3000)
 #   PLAN_API_TOKEN  optional bearer token (only if the server has auth enabled)
+
+SELF="$(cd -- "$(dirname -- "$0")" && pwd)"
+SKILL_ROOT="$(cd -- "${SELF}/.." && pwd)"
+# Defaults written at install time (uses ": ${VAR:=...}" so real env still wins).
+[ -f "${SKILL_ROOT}/config.env" ] && . "${SKILL_ROOT}/config.env"
 
 API="${PLAN_API_URL:-http://localhost:3000}"
 WS="${PLAN_WORKSPACE:-}"
 TOKEN="${PLAN_API_TOKEN:-}"
+PORT="${PLAN_PORT:-3000}"
+BASE_URL="${API%/}"
 
 die() { echo "plan: $*" >&2; exit 1; }
 need_py() { command -v python3 >/dev/null 2>&1 || die "python3 is required for this command"; }
+need_ws() { [ -n "$WS" ] || die "set PLAN_WORKSPACE (e.g. export PLAN_WORKSPACE=hostlet)"; }
 
 usage() {
   cat >&2 <<EOF
-plan — drive the plan-sync API for workspace "\${PLAN_WORKSPACE}"
+plan — drive the plan-sync API and its local server
 
+Server:
+  plan up                      start plan-sync locally on 0.0.0.0:${PORT} (background) if not already running
+  plan down                    stop the local server
+  plan restart                 stop then start
+  plan status-server           is the server healthy? print the URL
+
+Plan (needs PLAN_WORKSPACE="\${PLAN_WORKSPACE}"):
   plan get                     show plan + messages (JSON)
   plan show                    print the plan body markdown
   plan put [FILE] [--title T]  write the plan body from FILE or stdin (author=agent)
@@ -29,15 +50,58 @@ plan — drive the plan-sync API for workspace "\${PLAN_WORKSPACE}"
   plan poll                    cheap status+message snapshot (loop on this while waiting)
   plan revisions               body revision history
 
-Env: PLAN_API_URL, PLAN_WORKSPACE (required), PLAN_API_TOKEN (optional)
+Env: PLAN_API_URL, PLAN_WORKSPACE, PLAN_SYNC_DIR, PLAN_PORT, PLAN_API_TOKEN
 EOF
 }
 
-[ -n "$WS" ] || { usage; die "set PLAN_WORKSPACE (e.g. export PLAN_WORKSPACE=hostlet)"; }
-BASE="${API%/}/api/w/${WS}"
+healthy() { curl -fsS "${BASE_URL}/api/health" >/dev/null 2>&1; }
 
-AUTH=()
-[ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer ${TOKEN}")
+lan_ip() { hostname -I 2>/dev/null | awk '{print $1}'; }
+
+resolve_app_dir() {
+  if [ -n "${PLAN_SYNC_DIR:-}" ] && [ -d "${PLAN_SYNC_DIR}" ]; then return; fi
+  # Source-repo layout: <repo>/skill/plan-sync/scripts/plan -> repo is two up from skill root.
+  local guess
+  guess="$(cd -- "${SKILL_ROOT}/../.." 2>/dev/null && pwd || true)"
+  if [ -n "$guess" ] && [ -f "$guess/package.json" ] && grep -q '"name": *"plan-sync"' "$guess/package.json" 2>/dev/null; then
+    PLAN_SYNC_DIR="$guess"
+    return
+  fi
+  die "set PLAN_SYNC_DIR to the plan-sync app directory (where its package.json lives)"
+}
+
+server_up() {
+  if healthy; then
+    echo "plan-sync already running at ${BASE_URL}"
+    return 0
+  fi
+  resolve_app_dir
+  command -v pnpm >/dev/null 2>&1 || die "pnpm is required to start the server"
+  (
+    cd "${PLAN_SYNC_DIR}"
+    [ -d node_modules ] || { echo "installing deps…"; pnpm install; }
+    [ -f .next/BUILD_ID ] || { echo "building (first run)…"; pnpm build; }
+  )
+  local log="${PLAN_SYNC_LOG:-/tmp/plan-sync.log}"
+  echo "starting plan-sync on 0.0.0.0:${PORT} (logs: ${log})…"
+  ( cd "${PLAN_SYNC_DIR}" && PORT="${PORT}" nohup pnpm start >"${log}" 2>&1 & )
+  local i
+  for i in $(seq 1 80); do healthy && break; sleep 0.5; done
+  healthy || die "server did not become healthy — see ${log}"
+  local ip; ip="$(lan_ip)"
+  echo "up: ${BASE_URL}"
+  [ -n "$ip" ] && echo "phone (same Wi-Fi): http://${ip}:${PORT}"
+}
+
+server_down() {
+  local pid
+  pid="$(ss -ltnp 2>/dev/null | grep ":${PORT}\b" | grep -oP 'pid=\K[0-9]+' | head -1 || true)"
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null && echo "stopped plan-sync (pid ${pid})"
+  else
+    echo "plan-sync not running on port ${PORT}"
+  fi
+}
 
 pp() { if command -v jq >/dev/null 2>&1; then jq .; else cat; fi; }
 
@@ -45,9 +109,9 @@ pp() { if command -v jq >/dev/null 2>&1; then jq .; else cat; fi; }
 curl_json() {
   local m="$1" p="$2" b="${3:-}"
   if [ -n "$b" ]; then
-    curl -sS -X "$m" "${BASE}${p}" -H 'Content-Type: application/json' "${AUTH[@]}" -d "$b"
+    curl -sS -X "$m" "${BASE_URL}/api/w/${WS}${p}" -H 'Content-Type: application/json' ${TOKEN:+-H "Authorization: Bearer ${TOKEN}"} -d "$b"
   else
-    curl -sS -X "$m" "${BASE}${p}" "${AUTH[@]}"
+    curl -sS -X "$m" "${BASE_URL}/api/w/${WS}${p}" ${TOKEN:+-H "Authorization: Bearer ${TOKEN}"}
   fi
 }
 
@@ -67,14 +131,25 @@ cmd="${1:-help}"
 shift || true
 
 case "$cmd" in
+  up) server_up ;;
+  down) server_down ;;
+  restart) server_down; sleep 1; server_up ;;
+  status-server)
+    if healthy; then
+      ip="$(lan_ip)"; echo "healthy: ${BASE_URL}${ip:+  (phone: http://${ip}:${PORT})}"
+    else
+      echo "not running at ${BASE_URL}"; exit 1
+    fi
+    ;;
   get)
-    curl_json GET "" | pp
+    need_ws; curl_json GET "" | pp
     ;;
   show)
-    need_py
+    need_ws; need_py
     curl_json GET "" | python3 -c 'import sys, json; print(json.load(sys.stdin)["plan"]["bodyMd"])'
     ;;
   put)
+    need_ws
     title=""; file="-"
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -89,6 +164,7 @@ case "$cmd" in
     curl_json PUT "" "$(json_obj "${args[@]}")" | pp
     ;;
   status)
+    need_ws
     if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
       new="$1"; shift; note=""
       while [ $# -gt 0 ]; do
@@ -102,6 +178,7 @@ case "$cmd" in
     fi
     ;;
   msg)
+    need_ws
     kind="note"
     while [ $# -gt 0 ]; do
       case "$1" in --kind) kind="${2:-}"; shift 2 ;; *) break ;; esac
@@ -111,6 +188,7 @@ case "$cmd" in
     curl_json POST "/messages" "$(json_obj author=agent "kind=${kind}" "body=${text}")" | pp
     ;;
   messages)
+    need_ws
     since=""
     while [ $# -gt 0 ]; do
       case "$1" in --since) since="${2:-}"; shift 2 ;; *) shift ;; esac
@@ -118,10 +196,10 @@ case "$cmd" in
     curl_json GET "/messages${since:+?since=${since}}" | pp
     ;;
   poll)
-    curl_json GET "/poll" | pp
+    need_ws; curl_json GET "/poll" | pp
     ;;
   revisions)
-    curl_json GET "/revisions" | pp
+    need_ws; curl_json GET "/revisions" | pp
     ;;
   help|--help|-h)
     usage; exit 0
