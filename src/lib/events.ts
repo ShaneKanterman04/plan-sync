@@ -8,6 +8,7 @@
 type Client = {
   workspace: string;
   controller: ReadableStreamDefaultController<Uint8Array>;
+  keepAlive: ReturnType<typeof setInterval>;
 };
 
 const encoder = new TextEncoder();
@@ -22,16 +23,25 @@ const clients = new Set<Client>();
 export const LIST_CHANNEL = "*list*";
 
 export function createEventStream(workspace: string) {
+  let client: Client | null = null;
   return new ReadableStream({
     start(controller) {
-      const client = { workspace, controller };
+      const keepAlive = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(": heartbeat\n\n"));
+        } catch {
+          clearInterval(keepAlive);
+        }
+      }, 15_000);
+      client = { workspace, controller, keepAlive };
       clients.add(client);
       controller.enqueue(encoder.encode("event: ready\ndata: {}\n\n"));
     },
     cancel() {
-      for (const client of clients) {
-        if (client.workspace === workspace) clients.delete(client);
-      }
+      if (!client) return;
+      clearInterval(client.keepAlive);
+      clients.delete(client);
+      client = null;
     },
   });
 }
@@ -48,6 +58,7 @@ export function broadcast(workspace: string, kind = "changed") {
     try {
       client.controller.enqueue(payload);
     } catch {
+      clearInterval(client.keepAlive);
       clients.delete(client);
     }
   }

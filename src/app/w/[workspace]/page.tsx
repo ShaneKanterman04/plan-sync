@@ -90,6 +90,14 @@ export default function WorkspacePage() {
     };
   }, [load, path]);
 
+  useEffect(() => {
+    if (!connectionError) return;
+    const id = window.setInterval(() => {
+      load();
+    }, 2_000);
+    return () => window.clearInterval(id);
+  }, [connectionError, load]);
+
   async function act(fn: () => Promise<void>) {
     setBusy(true);
     setError("");

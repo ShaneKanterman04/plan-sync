@@ -82,6 +82,13 @@ const firstMessages: Message[] = [
   },
 ];
 
+const updatedPlan: Plan = {
+  ...plan,
+  bodyMd: "# Updated plan body",
+  version: 2,
+  updatedAt: "2026-06-04T00:01:00.000Z",
+};
+
 const secondMessages: Message[] = [
   ...firstMessages,
   {
@@ -128,7 +135,7 @@ describe("WorkspacePage SSE wiring", () => {
     // First GET returns the original thread; every later GET returns the updated one.
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ plan, messages: firstMessages }))
-      .mockResolvedValue(jsonResponse({ plan, messages: secondMessages }));
+      .mockResolvedValue(jsonResponse({ plan: updatedPlan, messages: secondMessages }));
     global.fetch = fetchMock as unknown as typeof fetch;
 
     setIntervalSpy = jest.spyOn(global, "setInterval");
@@ -159,12 +166,13 @@ describe("WorkspacePage SSE wiring", () => {
     expect(pollingTimerCalls(setIntervalSpy)).toHaveLength(0);
   });
 
-  test("a 'changed' SSE event triggers an immediate load() and UI update", async () => {
+  test("a 'changed' SSE event triggers an immediate load() and plan update", async () => {
     render(<WorkspacePage />);
 
     await screen.findByText("Original message");
     const callsAfterInitialLoad = fetchMock.mock.calls.length;
     expect(screen.queryByText("Pushed via SSE")).toBeNull();
+    expect(screen.queryByText("# Updated plan body")).toBeNull();
 
     const source = MockEventSource.instances[0];
 
@@ -178,7 +186,8 @@ describe("WorkspacePage SSE wiring", () => {
       expect(fetchMock.mock.calls.length).toBe(callsAfterInitialLoad + 1),
     );
 
-    // New message appears as a direct result of the SSE event...
+    // New plan body and message appear as a direct result of the SSE event...
+    await screen.findByText("# Updated plan body");
     await screen.findByText("Pushed via SSE");
     // ...and well within 100ms (i.e. not waiting for any 5s poll).
     expect(Date.now() - start).toBeLessThan(100);
