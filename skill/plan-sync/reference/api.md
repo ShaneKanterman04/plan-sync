@@ -29,6 +29,22 @@ writes. All write bodies are JSON and carry `"author": "agent"` or `"human"`.
 `documentType` ∈ `plan | summary | retrospective`.
 `kind` ∈ `note | approve | request_changes | check | progress | proof`.
 
+## Plugin listen events
+
+`./scripts/plan plugin listen` does not add a new HTTP endpoint. It polls the
+existing export/messages/status data and prints one JSON event for the active
+Codex TUI:
+
+- `human_message`: new human discussion note(s). Includes `messages`, `plan`,
+  and `syncFile`; Codex rewrites `syncFile`, then syncs it with `plan put`.
+- `approved`: current plan is approved and gate-valid.
+- `changes_requested`: human requested changes.
+- `stale_approval`: approval exists but version/branch/SHA validation failed.
+- `sync_error`: the linked file is absolute or escapes the repo.
+- `timeout`: no relevant event occurred before the timeout.
+
+When `plan.linkedFile` is empty, `syncFile` defaults to `plans/<workspace>.md`.
+
 Status transitions (PATCH to anything else → HTTP 400):
 ```
 draft → review

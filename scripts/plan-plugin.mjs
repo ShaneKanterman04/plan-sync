@@ -3,6 +3,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import utils from "./plan-plugin-utils.cjs";
+
+const { baselineFromBundle, listenEventForBundle } = utils;
 
 const repoCwd = process.env.PLAN_REPO_CWD || process.cwd();
 const baseUrl = (process.env.PLAN_API_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -16,6 +19,7 @@ const strictApproval = process.env.PLAN_APPROVAL_STRICT !== "0";
 function usage() {
   console.error(`usage:
   plan plugin wait [--timeout 600] [--interval 3]
+  plan plugin listen [--timeout 600] [--interval 3]
   plan plugin preflight
   plan plugin run-codex
   plan plugin daemon`);
@@ -253,6 +257,57 @@ async function waitForApproval(timeoutSeconds, intervalSeconds) {
   }
 }
 
+function printJson(value) {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function listen(timeoutSeconds, intervalSeconds) {
+  const started = Date.now();
+  const initial = await getBundle();
+  const baseline = baselineFromBundle(initial);
+
+  while (true) {
+    const bundle = await getBundle();
+    const event = listenEventForBundle(bundle, baseline);
+    if (event?.type === "human_message") {
+      printJson(event);
+      return 0;
+    }
+    if (event?.type === "sync_error") {
+      printJson(event);
+      return 4;
+    }
+    if (event?.type === "changes_requested") {
+      printJson(event);
+      return 2;
+    }
+    if (event?.type === "approved") {
+      const result = validateGate(bundle);
+      if (!result.ok) {
+        printJson({
+          type: "stale_approval",
+          workspace: bundle.plan.workspace,
+          plan: bundle.plan,
+          messages: bundle.messages || [],
+          reason: result.reason,
+        });
+        return result.code;
+      }
+      printJson(event);
+      return 0;
+    }
+    if ((Date.now() - started) / 1000 >= timeoutSeconds) {
+      printJson({
+        type: "timeout",
+        workspace,
+        timeoutSeconds,
+      });
+      return 124;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalSeconds * 1000));
+  }
+}
+
 function promptFor(planPath) {
   return `You are running under the mandatory plan-sync plugin.
 
@@ -435,6 +490,15 @@ async function main() {
       else if (rest[i] === "--interval") interval = Number(rest[++i] || interval);
     }
     process.exit(await waitForApproval(timeout, interval));
+  }
+  if (subcommand === "listen") {
+    let timeout = defaultTimeout;
+    let interval = pollInterval;
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === "--timeout") timeout = Number(rest[++i] || timeout);
+      else if (rest[i] === "--interval") interval = Number(rest[++i] || interval);
+    }
+    process.exit(await listen(timeout, interval));
   }
   if (subcommand === "preflight") {
     const result = await runPreflight();

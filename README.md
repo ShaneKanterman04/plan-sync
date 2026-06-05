@@ -100,19 +100,29 @@ export PLAN_WORKSPACE=<workspace-name>
 ```
 
 The agent then uses `scripts/plan` (`put`, `status`, `msg`, `poll`, `show`, …) to
-write plans. Implementation is gated by the mandatory plugin commands; Codex is
-launched only after approval metadata and preflight checks pass.
+write plans. During review, the active Codex TUI blocks in `plugin listen`: a
+human discussion message wakes the same Codex session, which rewrites the
+linked plan file and syncs the full plan body back to plan-sync. Implementation
+is still gated by the mandatory plugin commands; Codex is launched only after
+approval metadata and preflight checks pass.
 Useful additions:
 
 ```bash
 ./scripts/plan put plan.md --title "Core UI cleanup" --type plan --linked-file docs/plan.md --ref apps/web/page.tsx
 ./scripts/plan status review
+./scripts/plan plugin listen --timeout 600 --interval 3
 ./scripts/plan plugin wait --timeout 600 --interval 3
 ./scripts/plan plugin preflight
 ./scripts/plan plugin run-codex
 ./scripts/plan proof --commit d0d853d --validation "pnpm test passed" --run-id 26964872228
 ./scripts/plan export --format markdown --out /tmp/plan-sync-export.md
 ```
+
+When `plugin listen` returns a `human_message` event, Codex treats the message as
+reviewer input, rewrites the whole local plan file, runs `plan put` on that file,
+posts a reply, and listens again. If a plan has no `linkedFile`, the local file
+defaults to `plans/<workspace>.md`; absolute paths or paths escaping the repo are
+rejected.
 
 For unattended handoff, run:
 

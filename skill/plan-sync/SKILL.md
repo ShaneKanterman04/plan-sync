@@ -33,7 +33,7 @@ The bundled `scripts/plan` helper reads these (env, or `config.env` written by
 - `PLAN_HOST` / `PLAN_PORT` — local bind settings (`0.0.0.0:3000` by default)
 - `PLAN_API_TOKEN` — optional; only if the server has auth enabled
 - `PLAN_AGENT_NAME` — runner name recorded by the plugin (default `codex`)
-- `PLAN_AGENT_CMD` — non-interactive agent command (default `codex exec`)
+- `PLAN_AGENT_CMD` — non-interactive implementation command (default `codex exec`)
 - `PLAN_PREFLIGHT_CMD` — command the plugin runs before implementation
 - `PLAN_VALIDATE_CMD` — command the plugin runs before marking done
 
@@ -55,7 +55,7 @@ they can review on their phone. (`plan down` stops it; `plan restart` cycles it.
 ### 1. Write the plan and hand it off
 Draft the plan in markdown, then:
 ```bash
-./scripts/plan put plan.md --title "Short title"    # or:  echo "..." | ./scripts/plan put -
+./scripts/plan put plan.md --title "Short title" --linked-file plan.md
 ./scripts/plan status review
 ./scripts/plan msg "Posted a plan for <task>. Ready for your review."
 ```
@@ -64,20 +64,27 @@ Then tell the user: "Plan posted — review it at `$PLAN_API_URL` on your phone.
 `./scripts/plan plugin`.**
 
 ### 2. Wait for the human's response
-Block until the human responds through the mandatory plugin gate:
+Block in the active Codex TUI until the human responds:
 ```bash
-./scripts/plan plugin wait --timeout 600 --interval 3
+./scripts/plan plugin listen --timeout 600 --interval 3
 ```
-It exits `0` only when the current approved plan is valid, `2` for changes
-requested, `3` for stale approval, and `124` for timeout. Once it returns,
-read the details if needed:
-```bash
-./scripts/plan show        # the (possibly human-edited) plan body
-./scripts/plan messages    # the discussion thread
-```
-- If `changes_requested`: address the feedback, `plan put` the revised plan,
-  `plan status review`, post a short message, and wait again.
-- If `approved`: continue to the preflight check.
+The command prints a JSON event:
+- `human_message`: treat the new human note(s) as reviewer input. Rewrite the
+  whole `syncFile`, run `./scripts/plan put "$syncFile" --linked-file "$syncFile"`
+  (preserving any title/type/ref metadata you need), post a concise agent reply,
+  and run `plugin listen` again.
+- `approved`: continue to the preflight check.
+- `changes_requested`: address the feedback, rewrite/sync the plan, set status
+  back to `review`, post a short reply, and run `plugin listen` again.
+- `stale_approval`, `sync_error`, or `timeout`: report the reason and stop.
+
+If the plan has no `linkedFile`, `plugin listen` uses `plans/<workspace>.md`.
+Never write absolute or repo-escaping linked paths; the plugin reports those as
+`sync_error`.
+
+`./scripts/plan plugin wait` remains available for approval-only automation, but
+the active TUI review loop should use `plugin listen` so phone messages wake the
+same Codex session.
 
 ### 3. Run the plugin gate
 Use the plugin preflight and runner. The plugin validates approval version,

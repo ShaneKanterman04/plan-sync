@@ -72,6 +72,15 @@ Plan (needs PLAN_WORKSPACE="\${PLAN_WORKSPACE}"):
                                requests changes, edits, or replies — then print what changed
   plan revisions               body revision history
 
+Plugin:
+  plan plugin listen [--timeout S] [--interval N]
+                               BLOCK until approval, changes requested, or a new human message;
+                               prints JSON for the active Codex session to handle
+  plan plugin wait             BLOCK until valid approval or changes requested
+  plan plugin preflight        validate the approved plan before implementation
+  plan plugin run-codex        launch the non-interactive implementation runner
+  plan plugin daemon           wait for approval, then run preflight + implementation
+
 Env/config: PLAN_API_URL, PLAN_WORKSPACE, PLAN_SYNC_DIR, PLAN_HOST, PLAN_PORT, PLAN_API_TOKEN
 EOF
 }
@@ -105,8 +114,14 @@ server_up() {
     [ -f .next/BUILD_ID ] || { echo "building (first run)…"; pnpm build; }
   )
   local log="${PLAN_SYNC_LOG:-/tmp/plan-sync.log}"
+  local next_bin="${PLAN_SYNC_DIR}/node_modules/.bin/next"
+  [ -x "$next_bin" ] || die "next binary not found at ${next_bin}; run pnpm install"
   echo "starting plan-sync on ${HOST}:${PORT} (logs: ${log})…"
-  ( cd "${PLAN_SYNC_DIR}" && HOST="${HOST}" PORT="${PORT}" nohup pnpm start >"${log}" 2>&1 & )
+  if command -v setsid >/dev/null 2>&1; then
+    ( cd "${PLAN_SYNC_DIR}" && setsid -f "$next_bin" start -H "${HOST}" -p "${PORT}" </dev/null >"${log}" 2>&1 )
+  else
+    ( cd "${PLAN_SYNC_DIR}" && nohup "$next_bin" start -H "${HOST}" -p "${PORT}" </dev/null >"${log}" 2>&1 & )
+  fi
   local i
   for i in $(seq 1 80); do healthy && break; sleep 0.5; done
   healthy || die "server did not become healthy — see ${log}"
