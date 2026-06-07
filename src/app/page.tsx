@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { WorkspaceSummary } from "@/lib/types";
@@ -8,6 +8,7 @@ import { api, timeLabel } from "@/components/api";
 import { DocumentTypeBadge } from "@/components/DocumentTypeBadge";
 import { LoadError } from "@/components/LoadError";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useLiveReload } from "@/components/useLiveReload";
 
 export default function Home() {
   const router = useRouter();
@@ -25,22 +26,11 @@ export default function Home() {
     }
   }, []);
 
-  const sourceRef = useRef<EventSource | null>(null);
-  useEffect(() => {
-    load();
-    // Real-time push: refetch whenever any write route broadcasts a 'changed'
-    // event over SSE, instead of polling every 5s.
-    const source = new EventSource("/api/workspaces/events");
-    sourceRef.current = source;
-    source.addEventListener("changed", () => load());
-    const onFocus = () => load();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      source.close();
-      sourceRef.current = null;
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [load]);
+  const connectionError = useLiveReload({
+    url: "/api/workspaces/events",
+    load,
+    disconnectMessage: "Live updates disconnected from /api/workspaces/events.",
+  });
 
   function open(e: React.FormEvent) {
     e.preventDefault();
@@ -68,6 +58,11 @@ export default function Home() {
       </form>
 
       {error && <LoadError message={error} url="/api/workspaces" onRetry={load} />}
+      {connectionError && (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {connectionError} Refreshing on focus is still enabled.
+        </p>
+      )}
 
       <ul className="space-y-2">
         {workspaces.map((w) => (
@@ -84,14 +79,20 @@ export default function Home() {
                 </div>
               </div>
               {w.title && <div className="mt-0.5 text-sm text-gray-600">{w.title}</div>}
-              {w.linkedFile && (
-                <div className="mt-1 truncate text-xs text-gray-500">{w.linkedFile}</div>
+              {w.primaryFile && (
+                <div className="mt-1 truncate text-xs text-gray-500">{w.primaryFile}</div>
               )}
               <div className="mt-1 flex items-center justify-between gap-2 text-xs text-gray-400">
                 <span>
                   v{w.version} · {w.updatedBy} · {timeLabel(w.updatedAt)}
                 </span>
-                {w.messageCount > 0 && <span>{w.messageCount} msg</span>}
+                {(w.fileCount > 0 || w.messageCount > 0) && (
+                  <span className="shrink-0">
+                    {w.fileCount > 0 && `${w.fileCount} file${w.fileCount === 1 ? "" : "s"}`}
+                    {w.fileCount > 0 && w.messageCount > 0 && " · "}
+                    {w.messageCount > 0 && `${w.messageCount} msg`}
+                  </span>
+                )}
               </div>
               {w.staleReasons.length > 0 && (
                 <div className="mt-1 text-xs font-bold text-amber-700">

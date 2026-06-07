@@ -55,14 +55,14 @@ Server:
 Plan (needs PLAN_WORKSPACE="\${PLAN_WORKSPACE}"):
   plan get                     show plan + messages (JSON)
   plan show                    print the plan body markdown
-  plan put [FILE] [--title T] [--type plan|summary|retrospective] [--linked-file F] [--ref F]
+  plan put [FILE] [--title T] [--type plan|summary|retrospective] [--sync-file F] [--linked-file F] [--ref F]
                                write the plan body from FILE or stdin with git/source metadata
   plan status                  show current status/version
   plan status NEW [--note N]   set status: draft|review|changes_requested|approved|implementing|done
   plan msg [--kind K] "TEXT"   post a message (kind: note|check|progress|approve|request_changes|proof)
   plan messages [--since ISO]  list messages
   plan poll                    one-shot status+message snapshot
-  plan preflight               check referenced files and stale approval metadata, then post a check message
+  plan preflight               check workspace files and stale approval metadata, then post a check message
   plan proof [--commit C] [--validation V] [--run-id R] [--note N]
                                append a structured final proof section and proof message
   plan export [--format markdown|json] [--out FILE]
@@ -181,15 +181,26 @@ with open(body_path, "r", encoding="utf-8") as handle:
     body = handle.read()
 out = {"author": "agent", "bodyMd": body}
 refs = []
+sync_file = ""
 for arg in args:
     key, _, value = arg.partition("=")
     if key == "ref":
         if value:
             refs.append(value)
+    elif key in ("syncFile", "linkedFile"):
+        if value:
+            sync_file = value
     elif value:
         out[key] = value
+files = []
+if sync_file:
+    out["linkedFile"] = sync_file
+    files.append({"path": sync_file, "role": "sync"})
 if refs:
     out["referencedFiles"] = refs
+    files.extend({"path": ref, "role": "reference"} for ref in refs)
+if files:
+    out["files"] = files
 print(json.dumps(out))
 PY
 }
@@ -281,12 +292,12 @@ case "$cmd" in
     ;;
   put)
     need_ws
-    title=""; doc_type=""; linked_file=""; file="-"; refs=()
+    title=""; doc_type=""; sync_file=""; file="-"; refs=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --title) title="${2:-}"; shift 2 ;;
         --type) doc_type="${2:-}"; shift 2 ;;
-        --linked-file) linked_file="${2:-}"; shift 2 ;;
+        --sync-file|--linked-file) sync_file="${2:-}"; shift 2 ;;
         --ref) refs+=("ref=${2:-}"); shift 2 ;;
         *) file="$1"; shift ;;
       esac
@@ -296,7 +307,7 @@ case "$cmd" in
     args=()
     [ -n "$title" ] && args+=("title=${title}")
     [ -n "$doc_type" ] && args+=("documentType=${doc_type}")
-    [ -n "$linked_file" ] && args+=("linkedFile=${linked_file}")
+    [ -n "$sync_file" ] && args+=("syncFile=${sync_file}")
     branch="$(git_branch)"; sha="$(git_sha)"
     [ -n "$branch" ] && args+=("sourceBranch=${branch}")
     [ -n "$sha" ] && args+=("sourceSha=${sha}")
@@ -351,14 +362,37 @@ import sys
 
 data = json.loads(sys.argv[1])
 plan = data["plan"]
-missing = [path for path in plan.get("referencedFiles", []) if not os.path.exists(path)]
+workspace_files = plan.get("files") or []
+if not workspace_files:
+    workspace_files = []
+    if plan.get("linkedFile"):
+        workspace_files.append({"path": plan["linkedFile"], "role": "sync"})
+    workspace_files.extend({"path": path, "role": "reference"} for path in plan.get("referencedFiles", []))
+normalized_files = []
+unsafe = []
+for item in workspace_files:
+    raw = str(item.get("path", "")).strip()
+    if not raw:
+        continue
+    if os.path.isabs(raw):
+        unsafe.append(f"workspace file must be relative: {raw}")
+        continue
+    normalized = os.path.normpath(raw).replace("\\", "/")
+    if normalized in (".", "..") or normalized.startswith("../"):
+        unsafe.append(f"workspace file escapes the repo: {raw}")
+        continue
+    if normalized not in normalized_files:
+        normalized_files.append(normalized)
+missing = [path for path in normalized_files if not os.path.exists(path)]
 branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True)
 sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True)
 current_branch = branch.stdout.strip() if branch.returncode == 0 else ""
 current_sha = sha.stdout.strip() if sha.returncode == 0 else ""
 problems = []
 if missing:
-    problems.append("missing referenced files: " + ", ".join(missing))
+    problems.append("missing workspace files: " + ", ".join(missing))
+if unsafe:
+    problems.extend(unsafe)
 if plan.get("approvedSha") and current_sha and plan["approvedSha"] != current_sha:
     problems.append(f"git SHA changed since approval: {plan['approvedSha']} -> {current_sha}")
 if plan.get("approvedBranch") and current_branch and plan["approvedBranch"] != current_branch:
@@ -369,7 +403,7 @@ if problems:
     print("Preflight failed: " + "; ".join(dict.fromkeys(problems)))
     sys.exit(2)
 print(
-    f"Preflight OK: {len(plan.get('referencedFiles', []))} referenced files exist; "
+    f"Preflight OK: {len(normalized_files)} workspace files exist; "
     f"branch={current_branch or 'unknown'}; sha={current_sha or 'unknown'}."
 )
 PY

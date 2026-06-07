@@ -55,7 +55,7 @@ they can review on their phone. (`plan down` stops it; `plan restart` cycles it.
 ### 1. Write the plan and hand it off
 Draft the plan in markdown, then:
 ```bash
-./scripts/plan put plan.md --title "Short title" --linked-file plan.md
+./scripts/plan put plan.md --title "Short title" --sync-file plan.md
 ./scripts/plan status review
 ./scripts/plan msg "Posted a plan for <task>. Ready for your review."
 ```
@@ -70,7 +70,7 @@ Block in the active Codex TUI until the human responds:
 ```
 The command prints a JSON event:
 - `human_message`: treat the new human note(s) as reviewer input. Rewrite the
-  whole `syncFile`, run `./scripts/plan put "$syncFile" --linked-file "$syncFile"`
+  whole `syncFile`, run `./scripts/plan put "$syncFile" --sync-file "$syncFile"`
   (preserving any title/type/ref metadata you need), post a concise agent reply,
   and run `plugin listen` again.
 - `approved`: continue to the preflight check.
@@ -78,8 +78,8 @@ The command prints a JSON event:
   back to `review`, post a short reply, and run `plugin listen` again.
 - `stale_approval`, `sync_error`, or `timeout`: report the reason and stop.
 
-If the plan has no `linkedFile`, `plugin listen` uses `plans/<workspace>.md`.
-Never write absolute or repo-escaping linked paths; the plugin reports those as
+If the plan has no sync file, `plugin listen` uses `plans/<workspace>.md`.
+Never write absolute or repo-escaping workspace file paths; the plugin reports those as
 `sync_error`.
 
 `./scripts/plan plugin wait` remains available for approval-only automation, but
@@ -88,7 +88,7 @@ same Codex session.
 
 ### 3. Run the plugin gate
 Use the plugin preflight and runner. The plugin validates approval version,
-branch/SHA metadata, referenced files, and `$PLAN_PREFLIGHT_CMD` before it
+branch/SHA metadata, workspace files, and `$PLAN_PREFLIGHT_CMD` before it
 launches Codex:
 ```bash
 ./scripts/plan plugin preflight

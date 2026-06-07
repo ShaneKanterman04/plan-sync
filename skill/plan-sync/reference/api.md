@@ -12,7 +12,7 @@ writes. All write bodies are JSON and carry `"author": "agent"` or `"human"`.
 | `GET /api/doctor` | — | Safe runtime/workspace diagnostics |
 | `GET /api/workspaces` | — | `{ "workspaces": [Summary, …] }` |
 | `GET /api/w/:ws` | — | `{ "plan": Plan, "messages": [Message, …] }` (auto-creates an empty draft) |
-| `PUT /api/w/:ws` | `{author,title?,bodyMd,documentType?,linkedFile?,sourceBranch?,sourceSha?,referencedFiles?}` | `{ "plan": Plan }` — bumps `version`, snapshots a revision |
+| `PUT /api/w/:ws` | `{author,title?,bodyMd,documentType?,files?,linkedFile?,sourceBranch?,sourceSha?,referencedFiles?}` | `{ "plan": Plan }` — bumps `version`, snapshots a revision |
 | `GET /api/w/:ws/status` | — | `{ status, version, updatedAt }` |
 | `PATCH /api/w/:ws/status` | `{author,status,note?}` | `{ "plan": Plan }` — transition-checked (400 if illegal) |
 | `GET /api/w/:ws/messages` | `?since=<ISO>` | `{ "messages": [Message, …] }` |
@@ -27,6 +27,8 @@ writes. All write bodies are JSON and carry `"author": "agent"` or `"human"`.
 
 `status` ∈ `draft | review | changes_requested | approved | implementing | done`.
 `documentType` ∈ `plan | summary | retrospective`.
+`files[]` entries are `{path, role}` where `role` ∈ `sync | reference`; old
+`linkedFile` and `referencedFiles` fields remain compatible.
 `kind` ∈ `note | approve | request_changes | check | progress | proof`.
 
 ## Plugin listen events
@@ -40,10 +42,10 @@ Codex TUI:
 - `approved`: current plan is approved and gate-valid.
 - `changes_requested`: human requested changes.
 - `stale_approval`: approval exists but version/branch/SHA validation failed.
-- `sync_error`: the linked file is absolute or escapes the repo.
+- `sync_error`: the sync file is absolute or escapes the repo.
 - `timeout`: no relevant event occurred before the timeout.
 
-When `plan.linkedFile` is empty, `syncFile` defaults to `plans/<workspace>.md`.
+When the plan has no sync file, `syncFile` defaults to `plans/<workspace>.md`.
 
 Status transitions (PATCH to anything else → HTTP 400):
 ```

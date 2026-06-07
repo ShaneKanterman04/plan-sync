@@ -8,6 +8,7 @@ function plan(overrides: Partial<Plan> = {}): Plan {
     bodyMd: "# Plan",
     documentType: "plan",
     linkedFile: "",
+    files: [],
     sourceBranch: "main",
     sourceSha: "abc123",
     referencedFiles: [],

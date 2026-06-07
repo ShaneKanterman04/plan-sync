@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { DOCUMENT_TYPES, type DocumentType, type Message, type Plan } from "@/lib/types";
+import {
+  DOCUMENT_TYPES,
+  WORKSPACE_FILE_ROLES,
+  type DocumentType,
+  type Message,
+  type Plan,
+  type WorkspaceFile,
+  type WorkspaceFileRole,
+} from "@/lib/types";
 import { api, timeLabel } from "@/components/api";
 import { ActionBar } from "@/components/ActionBar";
 import { ChangesRequestedModal } from "@/components/ChangesRequestedModal";
@@ -13,6 +21,7 @@ import { MessageThread } from "@/components/MessageThread";
 import { PlanView } from "@/components/PlanView";
 import { StaleWarning } from "@/components/StaleWarning";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useLiveReload } from "@/components/useLiveReload";
 
 function staleReasons(plan: Plan): string[] {
   if (!["approved", "implementing", "done"].includes(plan.status)) return [];
@@ -31,6 +40,14 @@ function staleReasons(plan: Plan): string[] {
   return reasons;
 }
 
+function filesForPlan(plan: Plan): WorkspaceFile[] {
+  if (plan.files.length) return plan.files;
+  const files: WorkspaceFile[] = [];
+  if (plan.linkedFile) files.push({ path: plan.linkedFile, role: "sync" });
+  for (const path of plan.referencedFiles) files.push({ path, role: "reference" });
+  return files;
+}
+
 export default function WorkspacePage() {
   const params = useParams<{ workspace: string }>();
   const searchParams = useSearchParams();
@@ -43,10 +60,9 @@ export default function WorkspacePage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftDocumentType, setDraftDocumentType] = useState<DocumentType>("plan");
-  const [draftLinkedFile, setDraftLinkedFile] = useState("");
+  const [draftFiles, setDraftFiles] = useState<WorkspaceFile[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [connectionError, setConnectionError] = useState("");
   const [showChangesModal, setShowChangesModal] = useState(false);
 
   // Avoid clobbering the textarea with poll results while the human edits.
@@ -66,37 +82,11 @@ export default function WorkspacePage() {
     }
   }, [path]);
 
-  const sourceRef = useRef<EventSource | null>(null);
-  useEffect(() => {
-    load();
-    // Real-time push: refetch whenever a write route broadcasts a 'changed'
-    // event over SSE, instead of polling every 5s.
-    const source = new EventSource(`${path}/events`);
-    sourceRef.current = source;
-    source.addEventListener("ready", () => setConnectionError(""));
-    source.addEventListener("changed", () => {
-      setConnectionError("");
-      load();
-    });
-    source.onerror = () => {
-      setConnectionError(`Live updates disconnected from ${path}/events.`);
-    };
-    const onFocus = () => load();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      source.close();
-      sourceRef.current = null;
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [load, path]);
-
-  useEffect(() => {
-    if (!connectionError) return;
-    const id = window.setInterval(() => {
-      load();
-    }, 2_000);
-    return () => window.clearInterval(id);
-  }, [connectionError, load]);
+  const connectionError = useLiveReload({
+    url: `${path}/events`,
+    load,
+    disconnectMessage: `Live updates disconnected from ${path}/events.`,
+  });
 
   async function act(fn: () => Promise<void>) {
     setBusy(true);
@@ -115,7 +105,7 @@ export default function WorkspacePage() {
     if (!plan || readOnly) return;
     setDraft(plan.bodyMd);
     setDraftDocumentType(plan.documentType);
-    setDraftLinkedFile(plan.linkedFile);
+    setDraftFiles(filesForPlan(plan));
     setEditing(true);
   }
 
@@ -131,11 +121,36 @@ export default function WorkspacePage() {
           author: "human",
           bodyMd: draft,
           documentType: draftDocumentType,
-          linkedFile: draftLinkedFile,
+          files: draftFiles.filter((file) => file.path.trim()),
         }),
       });
       setEditing(false);
     });
+  }
+
+  function updateDraftFile(index: number, patch: Partial<WorkspaceFile>) {
+    setDraftFiles((current) =>
+      current.map((file, i) => {
+        if (i !== index) {
+          if (patch.role === "sync" && file.role === "sync") return { ...file, role: "reference" };
+          return file;
+        }
+        return { ...file, ...patch };
+      }),
+    );
+  }
+
+  function addDraftFile(role: WorkspaceFileRole) {
+    setDraftFiles((current) => [
+      ...current.map((file) =>
+        role === "sync" && file.role === "sync" ? { ...file, role: "reference" as const } : file,
+      ),
+      { path: "", role },
+    ]);
+  }
+
+  function removeDraftFile(index: number) {
+    setDraftFiles((current) => current.filter((_, i) => i !== index));
   }
 
   function approve() {
@@ -184,6 +199,10 @@ export default function WorkspacePage() {
     await load();
   }
 
+  const workspaceFiles = plan ? filesForPlan(plan) : [];
+  const syncFile = workspaceFiles.find((file) => file.role === "sync");
+  const referenceFiles = workspaceFiles.filter((file) => file.role === "reference");
+
   return (
     <main className="mx-auto min-h-screen max-w-2xl px-4 pb-28">
       <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-gray-200 bg-white/90 px-4 py-3 backdrop-blur">
@@ -222,7 +241,12 @@ export default function WorkspacePage() {
           <section className="mb-3 rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-600">
             <div className="flex flex-wrap items-center gap-2">
               <DocumentTypeBadge type={plan.documentType} />
-              {plan.linkedFile && <span className="break-all">{plan.linkedFile}</span>}
+              {syncFile && <span className="break-all">{syncFile.path}</span>}
+              {workspaceFiles.length > 0 && (
+                <span className="text-xs text-gray-400">
+                  {workspaceFiles.length} file{workspaceFiles.length === 1 ? "" : "s"}
+                </span>
+              )}
             </div>
             <div className="mt-2 grid gap-1 text-xs text-gray-400">
               <span>Updated {timeLabel(plan.updatedAt)}</span>
@@ -230,15 +254,20 @@ export default function WorkspacePage() {
               {plan.sourceSha && <span>SHA {plan.sourceSha}</span>}
               {plan.approvedAt && <span>Approved {timeLabel(plan.approvedAt)}</span>}
             </div>
-            {plan.referencedFiles.length > 0 && (
+            {workspaceFiles.length > 0 && (
               <details className="mt-2">
                 <summary className="cursor-pointer text-xs font-bold text-gray-500">
-                  Referenced files ({plan.referencedFiles.length})
+                  Workspace files ({workspaceFiles.length})
                 </summary>
                 <ul className="mt-1 list-disc space-y-1 pl-5 text-xs">
-                  {plan.referencedFiles.map((file) => (
-                    <li key={file} className="break-all">
-                      {file}
+                  {syncFile && (
+                    <li className="break-all">
+                      sync: {syncFile.path}
+                    </li>
+                  )}
+                  {referenceFiles.map((file) => (
+                    <li key={file.path} className="break-all">
+                      reference: {file.path}
                     </li>
                   ))}
                 </ul>
@@ -261,15 +290,61 @@ export default function WorkspacePage() {
                   ))}
                 </select>
               </label>
-              <label className="grid gap-1 text-sm font-bold text-gray-700">
-                Linked file
-                <input
-                  value={draftLinkedFile}
-                  onChange={(event) => setDraftLinkedFile(event.target.value)}
-                  placeholder="docs/reports/example.md"
-                  className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-base font-normal outline-none focus:border-gray-500"
-                />
-              </label>
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold text-gray-700">Workspace files</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => addDraftFile("sync")}
+                      disabled={draftFiles.some((file) => file.role === "sync")}
+                      className="rounded-lg border border-gray-300 px-2 py-1 text-xs font-bold text-gray-700 disabled:opacity-40"
+                    >
+                      Add sync
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addDraftFile("reference")}
+                      className="rounded-lg border border-gray-300 px-2 py-1 text-xs font-bold text-gray-700"
+                    >
+                      Add ref
+                    </button>
+                  </div>
+                </div>
+                {draftFiles.length === 0 && (
+                  <p className="text-xs text-gray-400">No workspace files attached.</p>
+                )}
+                {draftFiles.map((file, index) => (
+                  <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[7rem_1fr_auto]">
+                    <select
+                      value={file.role}
+                      onChange={(event) =>
+                        updateDraftFile(index, { role: event.target.value as WorkspaceFileRole })
+                      }
+                      className="min-h-11 rounded-lg border border-gray-300 bg-white px-2 text-sm outline-none focus:border-gray-500"
+                    >
+                      {WORKSPACE_FILE_ROLES.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={file.path}
+                      onChange={(event) => updateDraftFile(index, { path: event.target.value })}
+                      placeholder="docs/reports/example.md"
+                      className="min-h-11 min-w-0 rounded-lg border border-gray-300 bg-white px-3 text-base outline-none focus:border-gray-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeDraftFile(index)}
+                      className="min-h-11 rounded-lg border border-gray-300 px-3 text-sm font-bold text-gray-700"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
             </section>
           )}
           <PlanView editing={editing} body={plan.bodyMd} draft={draft} onDraftChange={setDraft} />

@@ -13,8 +13,15 @@ import type {
   PollSnapshot,
   Revision,
   Status,
+  WorkspaceFile,
   WorkspaceSummary,
 } from "@/lib/types";
+import {
+  normalizeWorkspaceFiles,
+  referenceFilesFromFiles,
+  syncFileFromFiles,
+  workspaceFilesFromLegacy,
+} from "@/lib/workspace-files";
 
 const dataDir = process.env.DATA_DIR || path.join(process.cwd(), ".data");
 mkdirSync(dataDir, { recursive: true });
@@ -69,9 +76,18 @@ CREATE TABLE IF NOT EXISTS plugin_runs (
   exit_code INTEGER,
   error_text TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS plan_files (
+  workspace TEXT NOT NULL REFERENCES plans(workspace) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  role TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (workspace, path)
+);
 CREATE INDEX IF NOT EXISTS idx_messages_ws ON messages(workspace, created_at);
 CREATE INDEX IF NOT EXISTS idx_revisions_ws ON revisions(workspace, version);
 CREATE INDEX IF NOT EXISTS idx_plugin_runs_ws ON plugin_runs(workspace, updated_at);
+CREATE INDEX IF NOT EXISTS idx_plan_files_ws ON plan_files(workspace, role, path);
 `);
 
 function existingColumns(table: string) {
@@ -97,6 +113,34 @@ addColumnIfMissing("plans", "approved_version", "INTEGER");
 addColumnIfMissing("plans", "approved_branch", "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("plans", "approved_sha", "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("plans", "approved_at", "TEXT");
+
+function backfillPlanFiles() {
+  const rows = db.prepare("SELECT workspace, linked_file, referenced_files FROM plans").all() as Array<{
+    workspace: string;
+    linked_file: string;
+    referenced_files: string;
+  }>;
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO plan_files (workspace, path, role, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      let files: WorkspaceFile[] = [];
+      try {
+        files = workspaceFilesFromLegacy({
+          linkedFile: row.linked_file,
+          referencedFiles: parseFileList(row.referenced_files),
+        });
+      } catch {
+        files = [];
+      }
+      const at = now();
+      for (const file of files) insert.run(row.workspace, file.path, file.role, at, at);
+    }
+  });
+  tx();
+}
 
 function id() {
   return crypto.randomUUID();
@@ -138,6 +182,8 @@ function parseFileList(input: unknown): string[] {
   }
 }
 
+backfillPlanFiles();
+
 export function staleReasons(plan: Pick<
   Plan,
   | "status"
@@ -166,16 +212,38 @@ export function staleReasons(plan: Pick<
 
 // --- row mappers (snake_case row -> camelCase domain type) ---
 
+function getWorkspaceFiles(workspace: string): WorkspaceFile[] {
+  return (
+    db
+      .prepare("SELECT path, role FROM plan_files WHERE workspace = ? ORDER BY role = 'sync' DESC, path")
+      .all(workspace) as Array<{ path: string; role: WorkspaceFile["role"] }>
+  ).map((row) => ({ path: row.path, role: row.role }));
+}
+
 function planRow(row: any): Plan {
+  const files = getWorkspaceFiles(row.workspace);
+  const linkedFile = syncFileFromFiles(files) || row.linked_file;
+  const referencedFiles = files.length
+    ? referenceFilesFromFiles(files)
+    : parseFileList(row.referenced_files);
+  let derivedFiles = files;
+  if (!derivedFiles.length) {
+    try {
+      derivedFiles = workspaceFilesFromLegacy({ linkedFile, referencedFiles });
+    } catch {
+      derivedFiles = [];
+    }
+  }
   return {
     workspace: row.workspace,
     title: row.title,
     bodyMd: row.body_md,
     documentType: row.document_type,
-    linkedFile: row.linked_file,
+    linkedFile,
+    files: derivedFiles,
     sourceBranch: row.source_branch,
     sourceSha: row.source_sha,
-    referencedFiles: parseFileList(row.referenced_files),
+    referencedFiles,
     approvedVersion: row.approved_version === null ? null : Number(row.approved_version),
     approvedBranch: row.approved_branch,
     approvedSha: row.approved_sha,
@@ -244,20 +312,23 @@ export function listWorkspaces(): WorkspaceSummary[] {
   return plans.map((p) => {
     const s = stats.get(p.workspace) as any;
     const m = lastMsg.get(p.workspace) as any;
-      return {
-        workspace: p.workspace,
-        title: p.title,
-        documentType: p.documentType,
-        linkedFile: p.linkedFile,
-        status: p.status,
-        version: p.version,
+    return {
+      workspace: p.workspace,
+      title: p.title,
+      documentType: p.documentType,
+      linkedFile: p.linkedFile,
+      primaryFile: p.linkedFile || p.referencedFiles[0] || "",
+      files: p.files,
+      fileCount: p.files.length,
+      status: p.status,
+      version: p.version,
       updatedAt: p.updatedAt,
       updatedBy: p.updatedBy,
-        messageCount: Number(s?.count ?? 0),
-        lastMessageAt: s?.last ?? null,
-        lastMessagePreview: m ? cleanLine(m.body, 80) : null,
-        staleReasons: staleReasons(p),
-      };
+      messageCount: Number(s?.count ?? 0),
+      lastMessageAt: s?.last ?? null,
+      lastMessagePreview: m ? cleanLine(m.body, 80) : null,
+      staleReasons: staleReasons(p),
+    };
   });
 }
 
@@ -288,6 +359,7 @@ export function putPlanBody(input: {
   author: Author;
   documentType?: DocumentType;
   linkedFile?: string;
+  files?: WorkspaceFile[];
   sourceBranch?: string;
   sourceSha?: string;
   referencedFiles?: string[];
@@ -299,18 +371,27 @@ export function putPlanBody(input: {
     const title = input.title !== undefined ? cleanLine(input.title, 120) : current?.title ?? "";
     const body = String(input.bodyMd ?? "").slice(0, 200_000);
     const documentType = input.documentType ?? current?.documentType ?? "plan";
-    const linkedFile =
-      input.linkedFile !== undefined ? cleanLine(input.linkedFile, 500) : current?.linkedFile ?? "";
+    const files =
+      input.files !== undefined
+        ? normalizeWorkspaceFiles(input.files)
+        : workspaceFilesFromLegacy({
+            linkedFile:
+              input.linkedFile !== undefined
+                ? cleanLine(input.linkedFile, 500)
+                : current?.linkedFile ?? "",
+            referencedFiles:
+              input.referencedFiles !== undefined
+                ? cleanFileList(input.referencedFiles)
+                : current?.referencedFiles ?? [],
+          });
+    const linkedFile = syncFileFromFiles(files);
     const sourceBranch =
       input.sourceBranch !== undefined
         ? cleanLine(input.sourceBranch, 120)
         : current?.sourceBranch ?? "";
     const sourceSha =
       input.sourceSha !== undefined ? cleanLine(input.sourceSha, 80) : current?.sourceSha ?? "";
-    const referencedFiles =
-      input.referencedFiles !== undefined
-        ? cleanFileList(input.referencedFiles)
-        : current?.referencedFiles ?? [];
+    const referencedFiles = referenceFilesFromFiles(files);
     const status = current?.status ?? "draft";
     const createdAt = current?.createdAt ?? at;
     db.prepare(
@@ -349,6 +430,12 @@ export function putPlanBody(input: {
       `INSERT INTO revisions (id, workspace, version, body_md, status, author, note, created_at)
        VALUES (?, ?, ?, ?, ?, ?, '', ?)`,
     ).run(id(), input.workspace, nextVersion, body, status, input.author, at);
+    db.prepare("DELETE FROM plan_files WHERE workspace = ?").run(input.workspace);
+    const insertFile = db.prepare(
+      `INSERT INTO plan_files (workspace, path, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (const file of files) insertFile.run(input.workspace, file.path, file.role, at, at);
   });
   tx();
   return getPlan(input.workspace)!;

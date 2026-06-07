@@ -4,9 +4,10 @@ const {
   listenEventForBundle,
   safeRelativePath,
   syncFileForPlan,
+  workspaceFilesForPlan,
 } = require("../../scripts/plan-plugin-utils.cjs");
 
-function plan(overrides = {}) {
+function plan(overrides: Record<string, unknown> = {}) {
   return {
     workspace: "demo",
     linkedFile: "",
@@ -16,7 +17,7 @@ function plan(overrides = {}) {
   };
 }
 
-function message(overrides = {}) {
+function message(overrides: Record<string, unknown> = {}) {
   return {
     id: "m1",
     author: "human",
@@ -27,7 +28,13 @@ function message(overrides = {}) {
   };
 }
 
-function bundle({ planOverrides = {}, messages = [] } = {}) {
+function bundle({
+  planOverrides = {},
+  messages = [],
+}: {
+  planOverrides?: Record<string, unknown>;
+  messages?: Array<Record<string, unknown>>;
+} = {}) {
   return {
     plan: plan(planOverrides),
     messages,
@@ -50,14 +57,30 @@ describe("plan plugin listen helpers", () => {
     });
   });
 
+  test("prefers the sync entry from plan.files", () => {
+    const filePlan = plan({
+      linkedFile: "docs/legacy.md",
+      referencedFiles: ["README.md"],
+      files: [
+        { path: "docs/current.md", role: "sync" },
+        { path: "src/app/page.tsx", role: "reference" },
+      ],
+    });
+    expect(syncFileForPlan(filePlan)).toEqual({ ok: true, syncFile: "docs/current.md" });
+    expect(workspaceFilesForPlan(filePlan)).toEqual([
+      { path: "docs/current.md", role: "sync" },
+      { path: "src/app/page.tsx", role: "reference" },
+    ]);
+  });
+
   test("rejects absolute and repo-escaping linked files", () => {
     expect(safeRelativePath("/tmp/plan.md")).toEqual({
       ok: false,
-      reason: "linked file must be relative: /tmp/plan.md",
+      reason: "workspace file must be relative: /tmp/plan.md",
     });
     expect(safeRelativePath("../plan.md")).toEqual({
       ok: false,
-      reason: "linked file escapes the repo: ../plan.md",
+      reason: "workspace file escapes the repo: ../plan.md",
     });
   });
 
@@ -92,7 +115,7 @@ describe("plan plugin listen helpers", () => {
     );
 
     expect(event.type).toBe("sync_error");
-    expect(event.reason).toBe("linked file escapes the repo: ../plan.md");
+    expect(event.reason).toBe("workspace file escapes the repo: ../plan.md");
   });
 
   test("returns approval and changes-requested events", () => {

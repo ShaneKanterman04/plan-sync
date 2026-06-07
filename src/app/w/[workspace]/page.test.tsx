@@ -4,9 +4,11 @@ import userEvent from "@testing-library/user-event";
 import type { Message, Plan } from "@/lib/types";
 import WorkspacePage from "./page";
 
+let searchParams = new URLSearchParams();
+
 jest.mock("next/navigation", () => ({
   useParams: () => ({ workspace: "demo" }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParams,
 }));
 
 // Markdown pulls in ESM-only deps that don't matter for this test; stub it out.
@@ -23,6 +25,7 @@ class MockEventSource {
   url: string;
   listeners = new Map<string, Set<Listener>>();
   closed = false;
+  onerror: ((event: Event) => void) | null = null;
 
   constructor(url: string) {
     this.url = url;
@@ -47,6 +50,10 @@ class MockEventSource {
     const event = new MessageEvent(type, { data: JSON.stringify(data) });
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
+
+  fail() {
+    this.onerror?.(new Event("error"));
+  }
 }
 
 // --- Fixtures -----------------------------------------------------------------
@@ -56,10 +63,14 @@ const plan: Plan = {
   title: "Initial plan",
   bodyMd: "# Initial plan body",
   documentType: "plan",
-  linkedFile: "",
+  linkedFile: "docs/plan.md",
+  files: [
+    { path: "docs/plan.md", role: "sync" },
+    { path: "src/app/page.tsx", role: "reference" },
+  ],
   sourceBranch: "main",
   sourceSha: "abc123",
-  referencedFiles: [],
+  referencedFiles: ["src/app/page.tsx"],
   approvedVersion: null,
   approvedBranch: "",
   approvedSha: "",
@@ -128,6 +139,7 @@ describe("WorkspacePage SSE wiring", () => {
 
   beforeEach(() => {
     MockEventSource.instances = [];
+    searchParams = new URLSearchParams();
     (global as unknown as { EventSource: typeof MockEventSource }).EventSource =
       MockEventSource;
 
@@ -205,6 +217,84 @@ describe("WorkspacePage SSE wiring", () => {
     unmount();
     expect(source.closed).toBe(true);
   });
+
+  test("falls back to 2s reloads when SSE disconnects", async () => {
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    const source = MockEventSource.instances[0];
+    act(() => {
+      source.fail();
+    });
+
+    await screen.findByText(/Live updates disconnected from \/api\/w\/demo\/events\./);
+    expect(setIntervalSpy.mock.calls.some(([, delay]) => delay === 2000)).toBe(true);
+    expect(pollingTimerCalls(setIntervalSpy)).toHaveLength(0);
+  });
+});
+
+describe("WorkspacePage file editing", () => {
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    searchParams = new URLSearchParams();
+    (global as unknown as { EventSource: typeof MockEventSource }).EventSource =
+      MockEventSource;
+    fetchMock = jest.fn();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ plan, messages: firstMessages }))
+      .mockResolvedValue(jsonResponse({ plan, messages: firstMessages }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("edits and saves multiple workspace files", async () => {
+    const user = userEvent.setup();
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByDisplayValue("docs/plan.md")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("src/app/page.tsx")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add ref" }));
+    const pathInputs = screen.getAllByPlaceholderText("docs/reports/example.md");
+    await user.type(pathInputs[pathInputs.length - 1], "README.md");
+    await user.click(screen.getByRole("button", { name: "Save edits" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/w/demo" && (init as RequestInit | undefined)?.method === "PUT",
+        ),
+      ).toBe(true),
+    );
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/w/demo" && (init as RequestInit | undefined)?.method === "PUT",
+    );
+    const body = JSON.parse((putCall?.[1] as RequestInit).body as string);
+    expect(body.files).toEqual([
+      { path: "docs/plan.md", role: "sync" },
+      { path: "src/app/page.tsx", role: "reference" },
+      { path: "README.md", role: "reference" },
+    ]);
+  });
+
+  test("read-only mode hides editing controls", async () => {
+    searchParams = new URLSearchParams("readonly=1");
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    expect(screen.getByText("Read-only review mode. Editing, approval, and messages are disabled."))
+      .toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  });
 });
 
 describe("WorkspacePage sendMessage error handling", () => {
@@ -212,6 +302,7 @@ describe("WorkspacePage sendMessage error handling", () => {
 
   beforeEach(() => {
     MockEventSource.instances = [];
+    searchParams = new URLSearchParams();
     (global as unknown as { EventSource: typeof MockEventSource }).EventSource =
       MockEventSource;
     fetchMock = jest.fn();

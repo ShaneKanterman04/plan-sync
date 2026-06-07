@@ -52,11 +52,13 @@ See `skill/plan-sync/reference/api.md` for the full API.
 
 ## Data model
 
-One row per workspace in `plans` (the living document), plus a `revisions`
-snapshot per body change and a `messages` thread. The plan row also stores
-document type (`plan`, `summary`, or `retrospective`), an optional linked file,
-referenced files, source branch/SHA, and approval metadata for stale-plan
-warnings. Status lifecycle:
+One row per workspace in `plans` (the living document), plus a `plan_files`
+attachment set, a `revisions` snapshot per body change, and a `messages` thread.
+Each workspace can have one sync file and many reference files; legacy
+`linkedFile` and `referencedFiles` fields are still derived for older clients.
+The plan row also stores document type (`plan`, `summary`, or `retrospective`),
+source branch/SHA, and approval metadata for stale-plan warnings. Status
+lifecycle:
 
 ```
 draft → review → {approved | changes_requested} → implementing → done
@@ -102,13 +104,13 @@ export PLAN_WORKSPACE=<workspace-name>
 The agent then uses `scripts/plan` (`put`, `status`, `msg`, `poll`, `show`, …) to
 write plans. During review, the active Codex TUI blocks in `plugin listen`: a
 human discussion message wakes the same Codex session, which rewrites the
-linked plan file and syncs the full plan body back to plan-sync. Implementation
+sync file and syncs the full plan body back to plan-sync. Implementation
 is still gated by the mandatory plugin commands; Codex is launched only after
 approval metadata and preflight checks pass.
 Useful additions:
 
 ```bash
-./scripts/plan put plan.md --title "Core UI cleanup" --type plan --linked-file docs/plan.md --ref apps/web/page.tsx
+./scripts/plan put plan.md --title "Core UI cleanup" --type plan --sync-file docs/plan.md --ref apps/web/page.tsx
 ./scripts/plan status review
 ./scripts/plan plugin listen --timeout 600 --interval 3
 ./scripts/plan plugin wait --timeout 600 --interval 3
@@ -120,7 +122,7 @@ Useful additions:
 
 When `plugin listen` returns a `human_message` event, Codex treats the message as
 reviewer input, rewrites the whole local plan file, runs `plan put` on that file,
-posts a reply, and listens again. If a plan has no `linkedFile`, the local file
+posts a reply, and listens again. If a plan has no sync file, the local file
 defaults to `plans/<workspace>.md`; absolute paths or paths escaping the repo are
 rejected.
 

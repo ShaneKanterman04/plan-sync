@@ -4,6 +4,7 @@ import {
   MESSAGE_KINDS,
   PLUGIN_RUN_STATES,
   STATUSES,
+  WORKSPACE_FILE_ROLES,
   type Status,
 } from "@/lib/types";
 
@@ -12,6 +13,7 @@ export const statusSchema = z.enum(STATUSES);
 export const messageKindSchema = z.enum(MESSAGE_KINDS);
 export const documentTypeSchema = z.enum(DOCUMENT_TYPES);
 export const pluginRunStateSchema = z.enum(PLUGIN_RUN_STATES);
+export const workspaceFileRoleSchema = z.enum(WORKSPACE_FILE_ROLES);
 
 export const workspaceNameSchema = z
   .string()
@@ -29,6 +31,15 @@ export const putPlanSchema = z.object({
   bodyMd: z.string().max(200_000),
   documentType: documentTypeSchema.optional(),
   linkedFile: z.string().trim().max(500).optional(),
+  files: z
+    .array(
+      z.object({
+        path: z.string().trim().min(1).max(500),
+        role: workspaceFileRoleSchema,
+      }),
+    )
+    .max(200)
+    .optional(),
   sourceBranch: z.string().trim().max(120).optional(),
   sourceSha: z.string().trim().max(80).optional(),
   referencedFiles: z.array(z.string().trim().min(1).max(500)).max(200).optional(),

@@ -3,6 +3,7 @@ import {
   addMessage,
   appendProof,
   createPluginRun,
+  db,
   ensurePlan,
   getMessages,
   getPlan,
@@ -79,9 +80,81 @@ describe("plan data access", () => {
 
     expect(p.documentType).toBe("retrospective");
     expect(p.linkedFile).toBe("docs/report.md");
+    expect(p.files).toEqual([
+      { path: "docs/report.md", role: "sync" },
+      { path: "README.md", role: "reference" },
+      { path: "src/app/page.tsx", role: "reference" },
+    ]);
     expect(p.sourceBranch).toBe("main");
     expect(p.sourceSha).toBe("abc123");
-    expect(p.referencedFiles).toEqual(["src/app/page.tsx", "README.md"]);
+    expect(p.referencedFiles).toEqual(["README.md", "src/app/page.tsx"]);
+  });
+
+  test("putPlanBody stores explicit workspace files and legacy fields", () => {
+    const ws = "test-files-explicit";
+    const p = putPlanBody({
+      workspace: ws,
+      bodyMd: "plan",
+      author: "agent",
+      files: [
+        { path: "docs/plan.md", role: "sync" },
+        { path: "src/lib/db.ts", role: "reference" },
+      ],
+    });
+
+    expect(p.linkedFile).toBe("docs/plan.md");
+    expect(p.referencedFiles).toEqual(["src/lib/db.ts"]);
+    expect(p.files).toEqual([
+      { path: "docs/plan.md", role: "sync" },
+      { path: "src/lib/db.ts", role: "reference" },
+    ]);
+    const row = db
+      .prepare("SELECT linked_file, referenced_files FROM plans WHERE workspace = ?")
+      .get(ws) as any;
+    expect(row.linked_file).toBe("docs/plan.md");
+    expect(JSON.parse(row.referenced_files)).toEqual(["src/lib/db.ts"]);
+  });
+
+  test("putPlanBody rejects unsafe and duplicate explicit workspace files", () => {
+    expect(() =>
+      putPlanBody({
+        workspace: "test-files-unsafe",
+        bodyMd: "plan",
+        author: "agent",
+        files: [{ path: "../plan.md", role: "sync" }],
+      }),
+    ).toThrow("escapes the repo");
+
+    expect(() =>
+      putPlanBody({
+        workspace: "test-files-dupe",
+        bodyMd: "plan",
+        author: "agent",
+        files: [
+          { path: "docs/plan.md", role: "sync" },
+          { path: "docs/plan.md", role: "reference" },
+        ],
+      }),
+    ).toThrow("duplicate workspace file");
+  });
+
+  test("getPlan derives files from legacy columns when plan_files is empty", () => {
+    const ws = "test-files-legacy";
+    const at = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO plans (
+         workspace, title, body_md, document_type, linked_file, source_branch, source_sha,
+         referenced_files, status, version, created_at, updated_at, updated_by
+       ) VALUES (?, '', 'legacy', 'plan', 'docs/legacy.md', '', '', ?, 'draft', 1, ?, ?, 'agent')`,
+    ).run(ws, JSON.stringify(["README.md"]), at, at);
+
+    const p = getPlan(ws)!;
+    expect(p.files).toEqual([
+      { path: "docs/legacy.md", role: "sync" },
+      { path: "README.md", role: "reference" },
+    ]);
+    expect(p.linkedFile).toBe("docs/legacy.md");
+    expect(p.referencedFiles).toEqual(["README.md"]);
   });
 
   test("setStatus enforces transitions and logs messages", () => {

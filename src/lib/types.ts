@@ -3,6 +3,14 @@ export type Author = "agent" | "human";
 export const DOCUMENT_TYPES = ["plan", "summary", "retrospective"] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
+export const WORKSPACE_FILE_ROLES = ["sync", "reference"] as const;
+export type WorkspaceFileRole = (typeof WORKSPACE_FILE_ROLES)[number];
+
+export type WorkspaceFile = {
+  path: string;
+  role: WorkspaceFileRole;
+};
+
 export const STATUSES = [
   "draft",
   "review",
@@ -41,6 +49,7 @@ export type Plan = {
   bodyMd: string;
   documentType: DocumentType;
   linkedFile: string;
+  files: WorkspaceFile[];
   sourceBranch: string;
   sourceSha: string;
   referencedFiles: string[];
@@ -99,6 +108,9 @@ export type WorkspaceSummary = {
   title: string;
   documentType: DocumentType;
   linkedFile: string;
+  primaryFile: string;
+  files: WorkspaceFile[];
+  fileCount: number;
   status: Status;
   version: number;
   updatedAt: string;

@@ -29,13 +29,18 @@ function markdownExport(workspace: string) {
   if (plan.sourceSha) lines.push(`- Source SHA: ${plan.sourceSha}`);
   if (plan.approvedAt) lines.push(`- Approved at: ${plan.approvedAt}`);
   if (plan.approvedVersion !== null) lines.push(`- Approved version: ${plan.approvedVersion}`);
+  if (plan.files.length) lines.push(`- Workspace files: ${plan.files.length}`);
   if (stale.length) {
     lines.push("", "## Stale Warnings", "");
     for (const reason of stale) lines.push(`- ${reason}`);
   }
-  if (plan.referencedFiles.length) {
-    lines.push("", "## Referenced Files", "");
-    for (const file of plan.referencedFiles) lines.push(`- ${file}`);
+  if (plan.files.length) {
+    lines.push("", "## Workspace Files", "");
+    const syncFile = plan.files.find((file) => file.role === "sync");
+    if (syncFile) lines.push(`- sync: ${syncFile.path}`);
+    for (const file of plan.files.filter((file) => file.role === "reference")) {
+      lines.push(`- reference: ${file.path}`);
+    }
   }
   lines.push("", "## Body", "", plan.bodyMd || "_No plan written yet._");
   lines.push("", "## Messages", "");

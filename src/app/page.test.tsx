@@ -16,6 +16,7 @@ class MockEventSource {
   url: string;
   listeners = new Map<string, Set<Listener>>();
   closed = false;
+  onerror: ((event: Event) => void) | null = null;
 
   constructor(url: string) {
     this.url = url;
@@ -40,6 +41,10 @@ class MockEventSource {
     const event = new MessageEvent(type, { data: JSON.stringify(data) });
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
+
+  fail() {
+    this.onerror?.(new Event("error"));
+  }
 }
 
 // --- Fixtures -----------------------------------------------------------------
@@ -50,6 +55,9 @@ const first: WorkspaceSummary[] = [
     title: "Alpha plan",
     documentType: "plan",
     linkedFile: "",
+    primaryFile: "",
+    files: [],
+    fileCount: 0,
     status: "review",
     version: 1,
     updatedBy: "agent",
@@ -68,6 +76,9 @@ const second: WorkspaceSummary[] = [
     title: "Bravo plan",
     documentType: "summary",
     linkedFile: "docs/bravo.md",
+    primaryFile: "docs/bravo.md",
+    files: [{ path: "docs/bravo.md", role: "sync" }],
+    fileCount: 1,
     status: "draft",
     version: 1,
     updatedBy: "agent",
@@ -172,5 +183,19 @@ describe("Home SSE wiring", () => {
 
     unmount();
     expect(source.closed).toBe(true);
+  });
+
+  test("falls back to 2s reloads when SSE disconnects", async () => {
+    render(<Home />);
+    await screen.findByText("alpha");
+
+    const source = MockEventSource.instances[0];
+    act(() => {
+      source.fail();
+    });
+
+    await screen.findByText(/Live updates disconnected from \/api\/workspaces\/events\./);
+    expect(setIntervalSpy.mock.calls.some(([, delay]) => delay === 2000)).toBe(true);
+    expect(pollingTimerCalls(setIntervalSpy)).toHaveLength(0);
   });
 });

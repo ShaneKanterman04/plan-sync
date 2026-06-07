@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import utils from "./plan-plugin-utils.cjs";
 
-const { baselineFromBundle, listenEventForBundle } = utils;
+const { baselineFromBundle, listenEventForBundle, safeRelativePath, workspaceFilesForPlan } = utils;
 
 const repoCwd = process.env.PLAN_REPO_CWD || process.cwd();
 const baseUrl = (process.env.PLAN_API_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -183,8 +183,24 @@ async function runPreflight() {
     }
     return gated;
   }
-  const missing = gated.bundle.plan.referencedFiles.filter((file) => !existsSync(path.join(repoCwd, file)));
-  const problems = missing.length ? [`missing referenced files: ${missing.join(", ")}`] : [];
+  const workspaceFiles = workspaceFilesForPlan(gated.bundle.plan);
+  const unsafe = [];
+  const checkedFiles = [];
+  for (const file of workspaceFiles) {
+    const safe = safeRelativePath(file.path);
+    if (!safe.ok) {
+      unsafe.push(safe.reason);
+    } else {
+      checkedFiles.push({ ...file, path: safe.path });
+    }
+  }
+  const missing = checkedFiles
+    .filter((file) => !existsSync(path.join(repoCwd, file.path)))
+    .map((file) => file.path);
+  const problems = [
+    ...(unsafe.length ? unsafe : []),
+    ...(missing.length ? [`missing workspace files: ${missing.join(", ")}`] : []),
+  ];
   const command = process.env.PLAN_PREFLIGHT_CMD || "";
   const preflight = runShell(command);
   if (preflight.code !== 0) {
@@ -197,7 +213,7 @@ async function runPreflight() {
     return { ok: false, code: 3, reason, bundle: gated.bundle };
   }
   const summary = [
-    `Preflight OK: ${gated.bundle.plan.referencedFiles.length} referenced files checked`,
+    `Preflight OK: ${checkedFiles.length} workspace files checked`,
     `branch=${currentBranch() || "unknown"}`,
     `sha=${currentSha() || "unknown"}`,
     command ? `command=${command}` : "",
@@ -318,7 +334,7 @@ Rules:
 - Implement only the approved plan.
 - Do not expand scope.
 - Do not start unrelated refactors.
-- Before editing, inspect referenced files.
+- Before editing, inspect workspace files listed in the approved plan.
 - Use ./scripts/plan msg --kind progress to report progress.
 - If blocked, stop and report through ./scripts/plan msg.
 - If the plan appears stale or incorrect, stop. Do not improvise.
@@ -343,8 +359,10 @@ function exportApprovedPlan(bundle) {
     `- Approved branch: ${bundle.plan.approvedBranch || "unknown"}`,
     `- Approved SHA: ${bundle.plan.approvedSha || "unknown"}`,
   ];
-  if (bundle.plan.referencedFiles.length) {
-    lines.push("", "## Referenced Files", "", ...bundle.plan.referencedFiles.map((file) => `- ${file}`));
+  const workspaceFiles = workspaceFilesForPlan(bundle.plan);
+  if (workspaceFiles.length) {
+    lines.push("", "## Workspace Files", "");
+    for (const file of workspaceFiles) lines.push(`- ${file.role}: ${file.path}`);
   }
   lines.push("", "## Approved Plan", "", bundle.plan.bodyMd);
   writeFileSync(file, lines.join("\n"), "utf8");
