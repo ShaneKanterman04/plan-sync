@@ -13,14 +13,29 @@ set -euo pipefail
 #   PLAN_SYNC_DIR   path to the plan-sync app dir (required for `up`)
 #   PLAN_HOST       host to bind                  (default 0.0.0.0)
 #   PLAN_PORT       port to serve on              (default 3000)
+#   PLAN_UPLOAD_ROOT local upload inbox           (default ./.plan-sync/uploads)
 #   PLAN_API_TOKEN  optional bearer token (only if the server has auth enabled)
 
 SELF="$(cd -- "$(dirname -- "$0")" && pwd)"
 SKILL_ROOT="$(cd -- "${SELF}/.." && pwd)"
+ENV_PLAN_API_URL_SET="${PLAN_API_URL+x}"; ENV_PLAN_API_URL="${PLAN_API_URL:-}"
+ENV_PLAN_WORKSPACE_SET="${PLAN_WORKSPACE+x}"; ENV_PLAN_WORKSPACE="${PLAN_WORKSPACE:-}"
+ENV_PLAN_SYNC_DIR_SET="${PLAN_SYNC_DIR+x}"; ENV_PLAN_SYNC_DIR="${PLAN_SYNC_DIR:-}"
+ENV_PLAN_HOST_SET="${PLAN_HOST+x}"; ENV_PLAN_HOST="${PLAN_HOST:-}"
+ENV_PLAN_PORT_SET="${PLAN_PORT+x}"; ENV_PLAN_PORT="${PLAN_PORT:-}"
+ENV_PLAN_UPLOAD_ROOT_SET="${PLAN_UPLOAD_ROOT+x}"; ENV_PLAN_UPLOAD_ROOT="${PLAN_UPLOAD_ROOT:-}"
+ENV_PLAN_API_TOKEN_SET="${PLAN_API_TOKEN+x}"; ENV_PLAN_API_TOKEN="${PLAN_API_TOKEN:-}"
 # Defaults written at install time (uses ": ${VAR:=...}" so real env still wins).
 [ -f "${SKILL_ROOT}/config.env" ] && . "${SKILL_ROOT}/config.env"
 [ -f "${PWD}/.plan-sync/config.env" ] && . "${PWD}/.plan-sync/config.env"
 [ -f "${PWD}/plan-sync.env" ] && . "${PWD}/plan-sync.env"
+[ -n "$ENV_PLAN_API_URL_SET" ] && PLAN_API_URL="$ENV_PLAN_API_URL"
+[ -n "$ENV_PLAN_WORKSPACE_SET" ] && PLAN_WORKSPACE="$ENV_PLAN_WORKSPACE"
+[ -n "$ENV_PLAN_SYNC_DIR_SET" ] && PLAN_SYNC_DIR="$ENV_PLAN_SYNC_DIR"
+[ -n "$ENV_PLAN_HOST_SET" ] && PLAN_HOST="$ENV_PLAN_HOST"
+[ -n "$ENV_PLAN_PORT_SET" ] && PLAN_PORT="$ENV_PLAN_PORT"
+[ -n "$ENV_PLAN_UPLOAD_ROOT_SET" ] && PLAN_UPLOAD_ROOT="$ENV_PLAN_UPLOAD_ROOT"
+[ -n "$ENV_PLAN_API_TOKEN_SET" ] && PLAN_API_TOKEN="$ENV_PLAN_API_TOKEN"
 
 API="${PLAN_API_URL:-http://localhost:3000}"
 WS="${PLAN_WORKSPACE:-}"
@@ -34,6 +49,7 @@ case "$api_authority" in
 esac
 PORT="${PLAN_PORT:-${api_port:-3000}}"
 BASE_URL="${API%/}"
+PLAN_UPLOAD_ROOT="${PLAN_UPLOAD_ROOT:-${PWD}/.plan-sync/uploads}"
 
 die() { echo "plan: $*" >&2; exit 1; }
 need_py() { command -v python3 >/dev/null 2>&1 || die "python3 is required for this command"; }
@@ -118,9 +134,9 @@ server_up() {
   [ -x "$next_bin" ] || die "next binary not found at ${next_bin}; run pnpm install"
   echo "starting plan-sync on ${HOST}:${PORT} (logs: ${log})…"
   if command -v setsid >/dev/null 2>&1; then
-    ( cd "${PLAN_SYNC_DIR}" && setsid -f "$next_bin" start -H "${HOST}" -p "${PORT}" </dev/null >"${log}" 2>&1 )
+    ( cd "${PLAN_SYNC_DIR}" && PLAN_UPLOAD_ROOT="${PLAN_UPLOAD_ROOT}" setsid -f "$next_bin" start -H "${HOST}" -p "${PORT}" </dev/null >"${log}" 2>&1 )
   else
-    ( cd "${PLAN_SYNC_DIR}" && nohup "$next_bin" start -H "${HOST}" -p "${PORT}" </dev/null >"${log}" 2>&1 & )
+    ( cd "${PLAN_SYNC_DIR}" && PLAN_UPLOAD_ROOT="${PLAN_UPLOAD_ROOT}" nohup "$next_bin" start -H "${HOST}" -p "${PORT}" </dev/null >"${log}" 2>&1 & )
   fi
   local i
   for i in $(seq 1 80); do healthy && break; sleep 0.5; done
@@ -269,6 +285,7 @@ case "$cmd" in
     echo "  port: ${PORT}"
     echo "  workspace: ${WS:-<unset>}"
     echo "  app dir: ${PLAN_SYNC_DIR:-<unset>}"
+    echo "  upload root: ${PLAN_UPLOAD_ROOT}"
     echo "  token configured: $([ -n "$TOKEN" ] && echo yes || echo no)"
     [ -n "$ip" ] && echo "  phone: http://${ip}:${PORT}${WS:+/w/${WS}}"
     if healthy; then

@@ -32,6 +32,8 @@ The bundled `scripts/plan` helper reads these (env, or `config.env` written by
   needed so `plan up` can start the server)
 - `PLAN_HOST` / `PLAN_PORT` — local bind settings (`0.0.0.0:3000` by default)
 - `PLAN_API_TOKEN` — optional; only if the server has auth enabled
+- `PLAN_UPLOAD_ROOT` — where phone uploads are written (installer default:
+  `<workspace>/.plan-sync/uploads`)
 - `PLAN_AGENT_NAME` — runner name recorded by the plugin (default `codex`)
 - `PLAN_AGENT_CMD` — non-interactive implementation command (default `codex exec`)
 - `PLAN_PREFLIGHT_CMD` — command the plugin runs before implementation
@@ -85,6 +87,13 @@ Never write absolute or repo-escaping workspace file paths; the plugin reports t
 `./scripts/plan plugin wait` remains available for approval-only automation, but
 the active TUI review loop should use `plugin listen` so phone messages wake the
 same Codex session.
+
+### Phone file uploads
+The phone UI can upload `.csv`, `.txt`, `.md`, `.json`, and `.log` files into the
+workspace upload inbox. Uploaded files are saved under `$PLAN_UPLOAD_ROOT`, added
+to the plan as `reference` workspace files, and accompanied by a human note so
+`plugin listen` wakes the active agent. Treat those uploaded paths like any other
+workspace file during review and preflight.
 
 ### 3. Run the plugin gate
 Use the plugin preflight and runner. The plugin validates approval version,

@@ -7,7 +7,7 @@ agents and a human collaborate on — one living plan per dev workspace.
 phone → the agent picks up your changes, runs a check, and implements.
 
 - **Mobile UI** for humans: rendered markdown, inline edit, approve / request
-  changes, and a discussion thread.
+  changes, upload CSV/text files from a phone, and a discussion thread.
 - **Simple JSON API** for agents, including export and final-proof helpers.
 - **Diagnostics** for local server/workspace state so agents can tell whether
   the app, workspace, or phone view is stuck.
@@ -141,4 +141,17 @@ validation passes.
 Open a review-only phone view by adding `?readonly=1` to a workspace URL.
 
 The data (your plans) lives in `$DATA_DIR` (default `./.data`) and persists
-across restarts.
+across restarts. Phone uploads are written to `$PLAN_UPLOAD_ROOT`, which the
+installer defaults to `<target-workspace>/.plan-sync/uploads`; uploaded files are
+attached to the plan as reference workspace files.
+
+Upload endpoint:
+
+```bash
+curl -s -X POST localhost:3000/api/w/hostlet/uploads \
+  -F 'files=@risk-register.csv'
+```
+
+Uploads accept `.csv`, `.txt`, `.md`, `.json`, and `.log` files, up to 10 MB per
+file and 10 files per request. The endpoint bumps the plan version, adds the new
+paths to `Plan.files`, and posts a human note so `plugin listen` wakes the agent.

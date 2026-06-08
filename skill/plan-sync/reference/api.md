@@ -13,6 +13,7 @@ writes. All write bodies are JSON and carry `"author": "agent"` or `"human"`.
 | `GET /api/workspaces` | — | `{ "workspaces": [Summary, …] }` |
 | `GET /api/w/:ws` | — | `{ "plan": Plan, "messages": [Message, …] }` (auto-creates an empty draft) |
 | `PUT /api/w/:ws` | `{author,title?,bodyMd,documentType?,files?,linkedFile?,sourceBranch?,sourceSha?,referencedFiles?}` | `{ "plan": Plan }` — bumps `version`, snapshots a revision |
+| `POST /api/w/:ws/uploads` | `multipart/form-data` with `files` | `{ "plan": Plan, "uploaded": [{originalName,path,size}, …] }` — writes files to `$PLAN_UPLOAD_ROOT`, appends them as reference files, bumps `version`, and posts a human upload note |
 | `GET /api/w/:ws/status` | — | `{ status, version, updatedAt }` |
 | `PATCH /api/w/:ws/status` | `{author,status,note?}` | `{ "plan": Plan }` — transition-checked (400 if illegal) |
 | `GET /api/w/:ws/messages` | `?since=<ISO>` | `{ "messages": [Message, …] }` |
@@ -29,6 +30,9 @@ writes. All write bodies are JSON and carry `"author": "agent"` or `"human"`.
 `documentType` ∈ `plan | summary | retrospective`.
 `files[]` entries are `{path, role}` where `role` ∈ `sync | reference`; old
 `linkedFile` and `referencedFiles` fields remain compatible.
+Uploads accept `.csv`, `.txt`, `.md`, `.json`, and `.log` files, up to 10 MB per
+file and 10 files per request. Uploaded paths are relative to the target
+workspace, normally `.plan-sync/uploads/<workspace>/<generated-name>`.
 `kind` ∈ `note | approve | request_changes | check | progress | proof`.
 
 ## Plugin listen events
