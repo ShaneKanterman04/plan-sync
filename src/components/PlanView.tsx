@@ -16,12 +16,22 @@ export function PlanView({
   if (editing) {
     return (
       <textarea
+        key="plan-editor"
         value={draft}
         onChange={(e) => onDraftChange(e.target.value)}
+        onFocus={(e) =>
+          // Keep the caret visible above the keyboard when the editor opens.
+          e.currentTarget.scrollIntoView({ block: "nearest" })
+        }
         placeholder="Write the plan in markdown…"
-        className="min-h-[60vh] w-full resize-y rounded-xl border border-gray-300 bg-white p-4 font-mono text-[15px] leading-relaxed outline-none focus:border-gray-500"
+        aria-label="Plan markdown"
+        className="msg-enter min-h-[50dvh] w-full resize-y rounded-control border border-border-strong bg-surface p-4 font-mono text-base leading-relaxed text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface placeholder:text-muted"
       />
     );
   }
-  return <Markdown>{body}</Markdown>;
+  return (
+    <div key="plan-view" className="msg-enter">
+      <Markdown>{body}</Markdown>
+    </div>
+  );
 }

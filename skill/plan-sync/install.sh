@@ -20,15 +20,16 @@ done
 
 [ -n "$TARGET" ] || { echo "usage: $0 <target-workspace-dir> [--no-start]" >&2; exit 1; }
 [ -d "$TARGET" ] || { echo "error: target dir does not exist: $TARGET" >&2; exit 1; }
+TARGET_ABS="$(cd -- "$TARGET" && pwd)"
 
-DEST="$TARGET/.claude/skills/plan-sync"
-mkdir -p "$TARGET/.claude/skills"
+DEST="$TARGET_ABS/.claude/skills/plan-sync"
+mkdir -p "$TARGET_ABS/.claude/skills"
 rm -rf "$DEST"
 cp -R "$SCRIPT_DIR" "$DEST"
 chmod +x "$DEST/scripts/plan" "$DEST/install.sh" 2>/dev/null || true
 
-mkdir -p "$TARGET/scripts"
-cat > "$TARGET/scripts/plan" <<EOF
+mkdir -p "$TARGET_ABS/scripts"
+cat > "$TARGET_ABS/scripts/plan" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 SCRIPT_DIR="\$(cd -- "\$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +37,23 @@ SCRIPT_DIR="\$(cd -- "\$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)"
 : "\${PLAN_SYNC_DIR:=${REPO_ROOT}}"
 exec "\${PLAN_SYNC_DIR}/scripts/plan" "\$@"
 EOF
-chmod +x "$TARGET/scripts/plan"
+chmod +x "$TARGET_ABS/scripts/plan"
+
+mkdir -p "$TARGET_ABS/.plan-sync"
+cat > "$TARGET_ABS/.plan-sync/config.env" <<EOF
+PLAN_WORKSPACE=$(basename "$TARGET_ABS")
+PLAN_SYNC_DIR=${REPO_ROOT}
+PLAN_API_URL=http://localhost:${PLAN_PORT:-3000}
+PLAN_HOST=0.0.0.0
+PLAN_PORT=${PLAN_PORT:-3000}
+PLAN_UPLOAD_ROOT=${TARGET_ABS}/.plan-sync/uploads
+EOF
+
+if git -C "$TARGET_ABS" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  mkdir -p "$TARGET_ABS/.git/info"
+  touch "$TARGET_ABS/.git/info/exclude"
+  grep -qxF ".plan-sync/" "$TARGET_ABS/.git/info/exclude" || echo ".plan-sync/" >> "$TARGET_ABS/.git/info/exclude"
+fi
 
 # Record where the app lives + its URL so `plan up` can start it. Uses
 # ": ${VAR:=...}" so a real environment variable still overrides these.
@@ -45,6 +62,7 @@ cat > "$DEST/config.env" <<EOF
 : "\${PLAN_HOST:=0.0.0.0}"
 : "\${PLAN_PORT:=${PLAN_PORT:-3000}}"
 : "\${PLAN_API_URL:=http://localhost:${PLAN_PORT:-3000}}"
+: "\${PLAN_UPLOAD_ROOT:=${TARGET_ABS}/.plan-sync/uploads}"
 : "\${PLAN_AGENT_NAME:=codex}"
 : "\${PLAN_AGENT_CMD:=codex exec}"
 : "\${PLAN_PREFLIGHT_CMD:=pnpm typecheck && pnpm lint}"
@@ -55,10 +73,11 @@ cat > "$DEST/config.env" <<EOF
 EOF
 
 echo "Installed plan-sync skill -> $DEST"
-echo "Installed plan wrapper -> $TARGET/scripts/plan"
+echo "Installed plan wrapper -> $TARGET_ABS/scripts/plan"
 echo "  app dir:  $REPO_ROOT"
 echo "  api url:  http://localhost:${PLAN_PORT:-3000}"
 echo "  bind:     0.0.0.0:${PLAN_PORT:-3000}"
+echo "  uploads:  $TARGET_ABS/.plan-sync/uploads"
 
 if [ "$START" = "1" ]; then
   echo
@@ -71,7 +90,7 @@ fi
 cat <<EOF
 
 Set the workspace name for agents in this directory, e.g.:
-  export PLAN_WORKSPACE=$(basename "$TARGET")
+  export PLAN_WORKSPACE=$(basename "$TARGET_ABS")
 
-Then:  $TARGET/scripts/plan help
+Then:  $TARGET_ABS/scripts/plan help
 EOF

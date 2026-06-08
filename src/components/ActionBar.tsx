@@ -1,6 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import type { Status } from "@/lib/types";
+
+type PendingAction = "save" | "approve" | "request" | null;
+
+function Spinner() {
+  return <span aria-hidden="true" className="spinner mr-2 inline-block align-[-0.125em]" />;
+}
 
 export function ActionBar({
   editing,
@@ -20,52 +27,89 @@ export function ActionBar({
   onApprove: () => void;
   onRequestChanges: () => void;
 }) {
+  // Track which action the user tapped so only that button shows the busy
+  // label/spinner; the others simply disable. When not busy, `active` is null
+  // regardless of the last-tapped value, so no stale reset is needed.
+  const [pending, setPending] = useState<PendingAction>(null);
+  const active = busy ? pending : null;
+
+  const secondary =
+    "min-h-11 rounded-control border border-border-strong bg-surface px-4 text-base font-semibold text-foreground transition active:scale-[0.98] active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-40";
+  const primary =
+    "min-h-12 rounded-control bg-primary px-4 text-base font-semibold text-primary-foreground transition active:scale-[0.98] active:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-40";
+  const danger =
+    "min-h-12 rounded-control border border-danger bg-danger-subtle px-3 text-base font-semibold text-danger-foreground transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-40 whitespace-nowrap";
+  const success =
+    "min-h-12 rounded-control bg-success px-4 text-base font-semibold text-success-foreground transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-40";
+
   return (
     <div
-      className="fixed inset-x-0 bottom-0 z-20 border-t border-gray-200 bg-white/95 backdrop-blur"
+      role="region"
+      aria-label="Plan actions"
+      className="fixed inset-x-0 bottom-0 z-20 border-t border-border-strong bg-surface/90 shadow-raised backdrop-blur"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div className="mx-auto flex max-w-2xl items-center gap-2 px-4 py-3">
+      <div className="mx-auto grid max-w-2xl gap-2 px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] py-3">
         {editing ? (
-          <>
-            <button
-              onClick={onCancel}
-              disabled={busy}
-              className="min-h-12 flex-1 rounded-xl border border-gray-300 bg-white px-4 text-base font-bold text-gray-700 disabled:opacity-40"
-            >
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={onCancel} disabled={busy} className={secondary}>
               Cancel
             </button>
             <button
-              onClick={onSave}
+              onClick={() => {
+                setPending("save");
+                onSave();
+              }}
               disabled={busy}
-              className="min-h-12 flex-1 rounded-xl bg-gray-900 px-4 text-base font-bold text-white disabled:opacity-40"
+              aria-busy={active === "save"}
+              className={primary}
             >
-              Save edits
+              {active === "save" ? (
+                <>
+                  <Spinner />
+                  Saving…
+                </>
+              ) : (
+                "Save edits"
+              )}
             </button>
-          </>
+          </div>
         ) : (
           <>
-            <button
-              onClick={onEdit}
-              disabled={busy}
-              className="min-h-12 rounded-xl border border-gray-300 bg-white px-4 text-base font-bold text-gray-700 disabled:opacity-40"
-            >
+            <button onClick={onEdit} disabled={busy} className={`${secondary} w-full`}>
               Edit
             </button>
-            <button
-              onClick={onRequestChanges}
-              disabled={busy}
-              className="min-h-12 flex-1 rounded-xl border border-rose-300 bg-rose-50 px-3 text-base font-bold text-rose-700 disabled:opacity-40"
-            >
-              Request changes
-            </button>
-            <button
-              onClick={onApprove}
-              disabled={busy}
-              className="min-h-12 flex-1 rounded-xl bg-emerald-600 px-4 text-base font-bold text-white disabled:opacity-40"
-            >
-              Approve
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => {
+                  setPending("request");
+                  onRequestChanges();
+                }}
+                disabled={busy}
+                aria-busy={active === "request"}
+                className={danger}
+              >
+                Request changes
+              </button>
+              <button
+                onClick={() => {
+                  setPending("approve");
+                  onApprove();
+                }}
+                disabled={busy}
+                aria-busy={active === "approve"}
+                className={success}
+              >
+                {active === "approve" ? (
+                  <>
+                    <Spinner />
+                    Approving…
+                  </>
+                ) : (
+                  "Approve"
+                )}
+              </button>
+            </div>
           </>
         )}
       </div>

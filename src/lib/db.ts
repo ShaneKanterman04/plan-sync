@@ -441,6 +441,26 @@ export function putPlanBody(input: {
   return getPlan(input.workspace)!;
 }
 
+export function appendWorkspaceFiles(input: {
+  workspace: string;
+  author: Author;
+  files: WorkspaceFile[];
+  note?: string;
+}): { plan: Plan; message: Message | null } {
+  const current = ensurePlan(input.workspace);
+  const plan = putPlanBody({
+    workspace: input.workspace,
+    author: input.author,
+    bodyMd: current.bodyMd,
+    files: [...current.files, ...input.files],
+  });
+  const note = input.note?.trim();
+  const message = note
+    ? addMessage({ workspace: input.workspace, author: input.author, kind: "note", body: note })
+    : null;
+  return { plan, message };
+}
+
 // --- status lifecycle ---
 
 export function getStatus(

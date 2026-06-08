@@ -294,6 +294,64 @@ describe("WorkspacePage file editing", () => {
       .toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.queryByLabelText("Upload files")).toBeNull();
+  });
+
+  test("uploads files and reloads the workspace", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockReset();
+    const uploadedPlan: Plan = {
+      ...plan,
+      files: [
+        ...plan.files,
+        { path: ".plan-sync/uploads/demo/report.csv", role: "reference" },
+      ],
+      referencedFiles: ["src/app/page.tsx", ".plan-sync/uploads/demo/report.csv"],
+      version: 2,
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ plan, messages: firstMessages }))
+      .mockResolvedValueOnce(jsonResponse({ plan: uploadedPlan, uploaded: [] }))
+      .mockResolvedValue(jsonResponse({ plan: uploadedPlan, messages: firstMessages }));
+
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    await user.upload(
+      screen.getByLabelText("Upload files"),
+      new File(["name,value\nalpha,1\n"], "report.csv", { type: "text/csv" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/w/demo/uploads" &&
+            (init as RequestInit | undefined)?.method === "POST" &&
+            (init as RequestInit | undefined)?.body instanceof FormData,
+        ),
+      ).toBe(true),
+    );
+    await screen.findByText("reference: .plan-sync/uploads/demo/report.csv");
+  });
+
+  test("upload failures show the error banner", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockReset();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ plan, messages: firstMessages }))
+      .mockResolvedValueOnce(errorResponse(400, { error: "upload failed on server" }))
+      .mockResolvedValue(jsonResponse({ plan, messages: firstMessages }));
+
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    await user.upload(
+      screen.getByLabelText("Upload files"),
+      new File(["name,value\n"], "report.csv", { type: "text/csv" }),
+    );
+
+    await screen.findByText("upload failed on server");
   });
 });
 

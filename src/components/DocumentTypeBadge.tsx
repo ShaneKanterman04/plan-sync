@@ -6,15 +6,12 @@ const LABELS: Record<DocumentType, string> = {
   retrospective: "Retrospective",
 };
 
-const STYLES: Record<DocumentType, string> = {
-  plan: "bg-slate-100 text-slate-700",
-  summary: "bg-cyan-100 text-cyan-800",
-  retrospective: "bg-fuchsia-100 text-fuchsia-800",
-};
-
 export function DocumentTypeBadge({ type }: { type: DocumentType }) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${STYLES[type]}`}>
+    <span
+      title={LABELS[type]}
+      className="inline-flex items-center whitespace-nowrap rounded-full border border-(--color-doctype-fg)/40 bg-transparent px-2.5 py-1 text-xs font-semibold text-(--color-doctype-fg) transition-colors"
+    >
       {LABELS[type]}
     </span>
   );

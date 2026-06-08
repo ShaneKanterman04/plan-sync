@@ -12,7 +12,7 @@ import { useLiveReload } from "@/components/useLiveReload";
 
 export default function Home() {
   const router = useRouter();
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[] | null>(null);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
 
@@ -39,80 +39,127 @@ export default function Home() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-2xl px-4 pb-10">
-      <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-gray-200 bg-white/90 px-4 py-4 backdrop-blur">
-        <h1 className="text-xl font-extrabold">plan-sync</h1>
-        <p className="text-sm text-gray-500">Shared plans for agents &amp; humans</p>
+    <main
+      id="main"
+      className="mx-auto min-h-[100dvh] max-w-2xl overflow-x-clip px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-10"
+    >
+      <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-border-strong bg-surface/90 px-[max(1rem,env(safe-area-inset-left))] py-3 shadow-raised backdrop-blur">
+        <h1 className="text-[1.375rem] font-extrabold leading-7 tracking-tight">plan-sync</h1>
+        <p className="text-sm text-muted">Shared plans for agents &amp; humans</p>
       </header>
 
-      <form onSubmit={open} className="mb-5 flex gap-2">
+      <form onSubmit={open} className="mb-4 flex gap-2">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="workspace name (e.g. hostlet)"
-          className="min-h-12 flex-1 rounded-xl border border-gray-300 bg-white px-3 text-base outline-none focus:border-gray-500"
+          aria-label="Workspace name"
+          className="min-h-12 flex-1 rounded-control border border-border-strong bg-surface px-3 text-base text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface focus:border-border-strong placeholder:text-muted"
         />
-        <button className="min-h-12 rounded-xl bg-gray-900 px-4 text-base font-bold text-white">
+        <button className="min-h-12 shrink-0 rounded-control bg-primary px-4 text-base font-semibold text-primary-foreground transition active:scale-[0.98] active:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
           Open
         </button>
       </form>
 
       {error && <LoadError message={error} url="/api/workspaces" onRetry={load} />}
       {connectionError && (
-        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <p
+          role="status"
+          className="mb-4 rounded-card border border-warning bg-warning-subtle px-4 py-3 text-sm text-warning-foreground"
+        >
           {connectionError} Refreshing on focus is still enabled.
         </p>
       )}
 
-      <ul className="space-y-2">
-        {workspaces.map((w) => (
-          <li key={w.workspace}>
-            <Link
-              href={`/w/${encodeURIComponent(w.workspace)}`}
-              className="block rounded-2xl border border-gray-200 bg-white p-4 active:bg-gray-50"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-bold">{w.workspace}</span>
-                <div className="flex items-center gap-1.5">
-                  <DocumentTypeBadge type={w.documentType} />
-                  <StatusBadge status={w.status} />
+      <nav aria-label="Workspaces">
+        <h2 className="sr-only">Workspaces</h2>
+
+        {workspaces === null && (
+          <ul className="space-y-2" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <li
+                key={i}
+                className="rounded-card border border-border bg-surface p-4 shadow-card"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="h-4 w-28 rounded bg-surface-2 animate-pulse" />
+                  <div className="h-5 w-20 rounded-full bg-surface-2 animate-pulse" />
                 </div>
-              </div>
-              {w.title && <div className="mt-0.5 text-sm text-gray-600">{w.title}</div>}
-              {w.primaryFile && (
-                <div className="mt-1 truncate text-xs text-gray-500">{w.primaryFile}</div>
-              )}
-              <div className="mt-1 flex items-center justify-between gap-2 text-xs text-gray-400">
-                <span>
-                  v{w.version} · {w.updatedBy} · {timeLabel(w.updatedAt)}
-                </span>
-                {(w.fileCount > 0 || w.messageCount > 0) && (
-                  <span className="shrink-0">
-                    {w.fileCount > 0 && `${w.fileCount} file${w.fileCount === 1 ? "" : "s"}`}
-                    {w.fileCount > 0 && w.messageCount > 0 && " · "}
-                    {w.messageCount > 0 && `${w.messageCount} msg`}
-                  </span>
-                )}
-              </div>
-              {w.staleReasons.length > 0 && (
-                <div className="mt-1 text-xs font-bold text-amber-700">
-                  Stale review metadata
-                </div>
-              )}
-              {w.lastMessagePreview && (
-                <div className="mt-1 truncate text-xs text-gray-500">
-                  “{w.lastMessagePreview}”
-                </div>
-              )}
-            </Link>
-          </li>
-        ))}
-        {workspaces.length === 0 && !error && (
-          <li className="rounded-2xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400">
-            No workspaces yet. Open one above, or have an agent post a plan.
-          </li>
+                <div className="mt-2 h-3.5 w-40 rounded bg-surface-2 animate-pulse" />
+                <div className="mt-2 h-3 w-52 rounded bg-surface-2 animate-pulse" />
+              </li>
+            ))}
+          </ul>
         )}
-      </ul>
+
+        {workspaces && workspaces.length > 0 && (
+          <ul className="space-y-2">
+            {workspaces.map((w) => (
+              <li key={w.workspace}>
+                <Link
+                  href={`/w/${encodeURIComponent(w.workspace)}`}
+                  className="row-fade-in block rounded-card border border-border bg-surface p-4 shadow-card transition active:scale-[0.99] active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 truncate text-base font-semibold text-foreground">
+                      {w.workspace}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-1.5 pointer-events-none">
+                      <DocumentTypeBadge type={w.documentType} />
+                      <StatusBadge status={w.status} />
+                    </div>
+                  </div>
+
+                  {w.title && (
+                    <div className="mt-0.5 truncate text-sm text-muted">{w.title}</div>
+                  )}
+
+                  {w.primaryFile && (
+                    <div className="mt-1 truncate text-[0.8125rem] text-muted">
+                      {w.primaryFile}
+                    </div>
+                  )}
+
+                  <div className="mt-1.5 flex items-center justify-between gap-2 text-[0.8125rem] text-muted">
+                    <span className="min-w-0 truncate">
+                      v{w.version} · {w.updatedBy} · {timeLabel(w.updatedAt)}
+                    </span>
+                    {(w.fileCount > 0 || w.messageCount > 0) && (
+                      <span className="shrink-0">
+                        {w.fileCount > 0 &&
+                          `${w.fileCount} file${w.fileCount === 1 ? "" : "s"}`}
+                        {w.fileCount > 0 && w.messageCount > 0 && " · "}
+                        {w.messageCount > 0 && `${w.messageCount} msg`}
+                      </span>
+                    )}
+                  </div>
+
+                  {w.staleReasons.length > 0 && (
+                    <div className="mt-1.5 text-[0.8125rem] font-semibold text-warning">
+                      Stale review metadata
+                    </div>
+                  )}
+
+                  {w.lastMessagePreview && (
+                    <div className="mt-1.5 truncate text-[0.8125rem] italic text-muted">
+                      {w.lastMessagePreview}
+                    </div>
+                  )}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {workspaces && workspaces.length === 0 && !error && (
+          <div className="rounded-card border border-dashed border-border-strong p-6 text-center">
+            <p className="text-sm font-semibold text-foreground">No workspaces yet</p>
+            <p className="mt-1 text-sm text-muted">
+              Open one above, or have an agent post a plan.
+            </p>
+          </div>
+        )}
+      </nav>
     </main>
   );
 }

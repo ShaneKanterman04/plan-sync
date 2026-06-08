@@ -1,13 +1,263 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   GRAPHITE DESIGN SYSTEM — ONE TOKEN PLANE / TWO THEMES
+   Semantic tokens live in :root (LIGHT) and are remapped under
+   @media (prefers-color-scheme: dark). They are promoted to Tailwind
+   utilities via @theme inline below so every utility flips with the scheme
+   with ZERO dark: variants.
+   ========================================================================= */
+
 :root {
-  --background: #f6f7f9;
-  --foreground: #111827;
+  color-scheme: light dark;
+  overscroll-behavior-y: contain;
+
+  /* Canvas + text */
+  --background: #f7f8fa;
+  --foreground: #0d1117;
+
+  /* Surfaces */
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f3f6;
+  --color-surface-raised: #ffffff;
+
+  /* Borders */
+  --color-border: #e3e6eb;
+  --color-border-strong: #cdd2da;
+
+  /* Text roles */
+  --color-muted: #5b6573;
+  --color-faint: #5f6b7a;
+
+  /* Primary / accent (ONE indigo — interactivity only, never a status) */
+  --color-primary: #4f46e5;
+  --color-primary-foreground: #ffffff;
+  --color-accent: #4f46e5;
+  --color-accent-hover: #4338ca;
+  --color-accent-subtle: #eef0fe;
+  --color-accent-subtle-foreground: #3730a3;
+
+  /* Success (Approve) */
+  --color-success: #067a5b;
+  --color-success-foreground: #ffffff;
+  --color-success-subtle: #daf3ea;
+
+  /* Warning (stale / in-review accent) */
+  --color-warning: #9a5b00;
+  --color-warning-subtle: #fdf0d9;
+  --color-warning-foreground: #7a4700;
+
+  /* Danger (request changes / errors) */
+  --color-danger: #c0294a;
+  --color-danger-subtle: #fde7ec;
+  --color-danger-foreground: #8f1d37;
+
+  /* Info (Implementing status — distinct blue, NOT the accent) */
+  --color-info: #1f6feb;
+  --color-info-subtle: #e2eefb;
+  --color-info-foreground: #114a9e;
+
+  /* Done (violet, 6th semantic role) */
+  --color-done: #6d4bd8;
+  --color-done-subtle: #ece6fb;
+
+  /* Per-status contrast pairs (provable AA in BOTH themes) */
+  --color-st-draft-bg: #f1f3f6;
+  --color-st-draft-fg: #475160;
+  --color-st-review-bg: #fdf0d9;
+  --color-st-review-fg: #7a4700;
+  --color-st-changes-bg: #fde7ec;
+  --color-st-changes-fg: #9b1c2e;
+  --color-st-approved-bg: #d1fadf;
+  --color-st-approved-fg: #06603a;
+  --color-st-impl-bg: #e2eefb;
+  --color-st-impl-fg: #114a9e;
+  --color-st-done-bg: #ece6fb;
+  --color-st-done-fg: #4a2fa6;
+
+  /* Doc-type badge (subordinate outline pill) */
+  --color-doctype-fg: #5b6573;
+
+  /* Focus ring (= accent) */
+  --color-ring: #4f46e5;
+
+  /* Modal / sheet scrim */
+  --color-overlay: rgba(13, 17, 23, 0.45);
+
+  /* Markdown tokens */
+  --md-link: #3056d6;
+  --md-code-bg: #f1f3f6;
+  --md-code-fg: #0d1117;
+  --md-pre-bg: #0d1117;
+  --md-pre-fg: #e6e9ef;
+  --md-quote-border: #cdd2da;
+  --md-quote-fg: #5b6573;
+  --md-rule: #cdd2da;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b0e14;
+    --foreground: #e6e9ef;
+
+    --color-surface: #13171f;
+    --color-surface-2: #1b2029;
+    --color-surface-raised: #1b2029;
+
+    --color-border: #262d38;
+    --color-border-strong: #39414e;
+
+    --color-muted: #9aa4b2;
+    --color-faint: #7e8896;
+
+    --color-primary: #7c83ff;
+    --color-primary-foreground: #0b0e14;
+    --color-accent: #7c83ff;
+    --color-accent-hover: #9298ff;
+    --color-accent-subtle: #1c1f3a;
+    --color-accent-subtle-foreground: #b9bdff;
+
+    --color-success: #2ea37c;
+    --color-success-foreground: #0b0e14;
+    --color-success-subtle: #0f2a22;
+
+    --color-warning: #d9952b;
+    --color-warning-subtle: #2c2310;
+    --color-warning-foreground: #f0c277;
+
+    --color-danger: #e2607d;
+    --color-danger-subtle: #2e1620;
+    --color-danger-foreground: #f3a3b5;
+
+    --color-info: #5b9bff;
+    --color-info-subtle: #102338;
+    --color-info-foreground: #9cc4ff;
+
+    --color-done: #a48bf0;
+    --color-done-subtle: #211a3a;
+
+    --color-st-draft-bg: #1b2029;
+    --color-st-draft-fg: #cbd5e1;
+    --color-st-review-bg: #3a2e0c;
+    --color-st-review-fg: #fcd34d;
+    --color-st-changes-bg: #3d1620;
+    --color-st-changes-fg: #fda4af;
+    --color-st-approved-bg: #08321f;
+    --color-st-approved-fg: #6ee7b7;
+    --color-st-impl-bg: #12243f;
+    --color-st-impl-fg: #93c5fd;
+    --color-st-done-bg: #241640;
+    --color-st-done-fg: #c4b5fd;
+
+    --color-doctype-fg: #9aa4b2;
+
+    --color-ring: #7c83ff;
+
+    --color-overlay: rgba(0, 0, 0, 0.62);
+
+    --md-link: #8fa6ff;
+    --md-code-bg: #1b2029;
+    --md-code-fg: #e6e9ef;
+    --md-pre-bg: #080a0f;
+    --md-pre-fg: #e6e9ef;
+    --md-quote-border: #39414e;
+    --md-quote-fg: #9aa4b2;
+    --md-rule: #39414e;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Promote every semantic token to a real Tailwind utility. Because these are
+   `var()` references, the utilities (bg-surface, text-muted, border-border,
+   rounded-card, shadow-card, …) automatically flip with the color scheme.
+   --------------------------------------------------------------------------- */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-surface-raised: var(--color-surface-raised);
+
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+
+  --color-muted: var(--color-muted);
+  --color-faint: var(--color-faint);
+
+  --color-primary: var(--color-primary);
+  --color-primary-foreground: var(--color-primary-foreground);
+
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-subtle: var(--color-accent-subtle);
+  --color-accent-subtle-foreground: var(--color-accent-subtle-foreground);
+
+  --color-success: var(--color-success);
+  --color-success-foreground: var(--color-success-foreground);
+  --color-success-subtle: var(--color-success-subtle);
+
+  --color-warning: var(--color-warning);
+  --color-warning-subtle: var(--color-warning-subtle);
+  --color-warning-foreground: var(--color-warning-foreground);
+
+  --color-danger: var(--color-danger);
+  --color-danger-subtle: var(--color-danger-subtle);
+  --color-danger-foreground: var(--color-danger-foreground);
+
+  --color-info: var(--color-info);
+  --color-info-subtle: var(--color-info-subtle);
+  --color-info-foreground: var(--color-info-foreground);
+
+  --color-done: var(--color-done);
+  --color-done-subtle: var(--color-done-subtle);
+
+  --color-st-draft-bg: var(--color-st-draft-bg);
+  --color-st-draft-fg: var(--color-st-draft-fg);
+  --color-st-review-bg: var(--color-st-review-bg);
+  --color-st-review-fg: var(--color-st-review-fg);
+  --color-st-changes-bg: var(--color-st-changes-bg);
+  --color-st-changes-fg: var(--color-st-changes-fg);
+  --color-st-approved-bg: var(--color-st-approved-bg);
+  --color-st-approved-fg: var(--color-st-approved-fg);
+  --color-st-impl-bg: var(--color-st-impl-bg);
+  --color-st-impl-fg: var(--color-st-impl-fg);
+  --color-st-done-bg: var(--color-st-done-bg);
+  --color-st-done-fg: var(--color-st-done-fg);
+
+  --color-doctype-fg: var(--color-doctype-fg);
+
+  --color-ring: var(--color-ring);
+  --color-overlay: var(--color-overlay);
+
+  /* Radii — exactly two non-pill radii */
+  --radius-card: 14px;
+  --radius-control: 10px;
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px rgba(13, 17, 23, 0.05), 0 1px 1px rgba(13, 17, 23, 0.04);
+  --shadow-raised: 0 4px 12px rgba(13, 17, 23, 0.1), 0 1px 2px rgba(13, 17, 23, 0.06);
+  --shadow-overlay: 0 16px 48px rgba(13, 17, 23, 0.22), 0 4px 12px rgba(13, 17, 23, 0.12);
+
+  /* Motion easings */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Dark-mode shadows (surface-step + hairline do most of the lifting) */
+@media (prefers-color-scheme: dark) {
+  @theme inline {
+    --shadow-card: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-raised: 0 6px 18px rgba(0, 0, 0, 0.55);
+    --shadow-overlay: 0 20px 56px rgba(0, 0, 0, 0.7);
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Base layer
+   --------------------------------------------------------------------------- */
+html {
+  overscroll-behavior-y: contain;
 }
 
 body {
@@ -24,27 +274,145 @@ select {
   font: inherit;
 }
 
-/* Rendered-markdown styles for plan bodies (the `.md` wrapper). */
+/* >=16px on form controls so iOS never zooms on focus */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+@media (max-width: 480px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Tap / scroll hygiene */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+button,
+a,
+[role="button"],
+label,
+summary,
+select {
+  touch-action: manipulation;
+}
+
+/* Single global focus signal — the ring is the real affordance */
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* Default state transition so focus/disabled/active never hard-cut */
+button,
+a[role="button"],
+input,
+select,
+textarea,
+summary,
+label {
+  transition: color, background-color, border-color, box-shadow, opacity 120ms
+    var(--ease-out);
+}
+
+/* Reduced-motion global kill-switch */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Motion primitives (all neutralized by the reduced-motion block above)
+   --------------------------------------------------------------------------- */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes msg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes row-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sse-flash {
+  from {
+    background-color: var(--color-accent-subtle);
+  }
+  to {
+    background-color: var(--color-surface);
+  }
+}
+
+.spinner {
+  animation: spin 0.7s linear infinite;
+}
+.msg-enter {
+  animation: msg-enter 160ms var(--ease-out);
+}
+.row-fade-in {
+  animation: row-fade-in 160ms var(--ease-out);
+}
+.sse-flash {
+  animation: sse-flash 600ms var(--ease-out);
+}
+
+/* ============================================================================
+   Rendered-markdown styles for plan bodies (the `.md` wrapper).
+   Prose-measure capped at 42rem; every hardcoded hex routed to a --md-* token
+   so markdown reads correctly in BOTH themes.
+   ========================================================================= */
 .md {
-  line-height: 1.6;
+  line-height: 1.625;
+  max-width: 42rem;
   word-wrap: break-word;
 }
 .md > :first-child {
   margin-top: 0;
 }
 .md h1 {
-  font-size: 1.5rem;
-  font-weight: 800;
+  font-size: 1.3125rem;
+  font-weight: 700;
+  line-height: 1.75rem;
   margin: 1.2rem 0 0.6rem;
 }
 .md h2 {
-  font-size: 1.25rem;
-  font-weight: 800;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.625rem;
   margin: 1.1rem 0 0.5rem;
 }
 .md h3 {
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 700;
+  line-height: 1.5rem;
   margin: 1rem 0 0.4rem;
 }
 .md p {
@@ -64,19 +432,20 @@ select {
   margin: 0.2rem 0;
 }
 .md a {
-  color: #2563eb;
+  color: var(--md-link);
   text-decoration: underline;
 }
 .md code {
-  background: #eef0f3;
+  background: var(--md-code-bg);
+  color: var(--md-code-fg);
   border-radius: 4px;
   padding: 0.1rem 0.3rem;
-  font-size: 0.9em;
+  font-size: 14px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .md pre {
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--md-pre-bg);
+  color: var(--md-pre-fg);
   border-radius: 8px;
   padding: 0.9rem;
   overflow-x: auto;
@@ -88,9 +457,9 @@ select {
   padding: 0;
 }
 .md blockquote {
-  border-left: 3px solid #cbd5e1;
+  border-left: 3px solid var(--md-quote-border);
   padding-left: 0.8rem;
-  color: #475569;
+  color: var(--md-quote-fg);
   margin: 0.7rem 0;
 }
 .md table {
@@ -102,13 +471,13 @@ select {
 }
 .md th,
 .md td {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--md-rule);
   padding: 0.4rem 0.6rem;
   text-align: left;
 }
 .md hr {
   border: none;
-  border-top: 1px solid #d1d5db;
+  border-top: 1px solid var(--md-rule);
   margin: 1rem 0;
 }
 .md input[type="checkbox"] {
