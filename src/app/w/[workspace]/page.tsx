@@ -128,6 +128,19 @@ export default function WorkspacePage() {
     });
   }
 
+  function uploadFiles(event: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (selectedFiles.length === 0 || readOnly) return;
+    return act(async () => {
+      const formData = new FormData();
+      for (const file of selectedFiles) formData.append("files", file);
+      const res = await fetch(`${path}/uploads`, { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error || "Upload failed.");
+    });
+  }
+
   function updateDraftFile(index: number, patch: Partial<WorkspaceFile>) {
     setDraftFiles((current) =>
       current.map((file, i) => {
@@ -204,33 +217,45 @@ export default function WorkspacePage() {
   const referenceFiles = workspaceFiles.filter((file) => file.role === "reference");
 
   return (
-    <main className="mx-auto min-h-screen max-w-2xl px-4 pb-28">
-      <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-gray-200 bg-white/90 px-4 py-3 backdrop-blur">
-        <div className="flex items-center justify-between gap-2">
-          <Link href="/" className="text-sm text-gray-500">
+    <main
+      id="main"
+      className="mx-auto min-h-[100dvh] max-w-2xl overflow-x-clip px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(9.5rem+env(safe-area-inset-bottom))]"
+    >
+      <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-border-strong bg-surface/90 px-[max(1rem,env(safe-area-inset-left))] py-3 shadow-raised backdrop-blur">
+        <nav aria-label="Back" className="flex items-center justify-between gap-2">
+          <Link
+            href="/"
+            className="inline-flex min-h-11 items-center rounded-control text-sm font-medium text-muted active:text-foreground"
+          >
             ← all plans
           </Link>
           {plan && <StatusBadge status={plan.status} />}
-        </div>
-        <div className="mt-1 flex items-baseline justify-between gap-2">
-          <h1 className="text-lg font-extrabold">{workspace}</h1>
+        </nav>
+        <div className="mt-1 flex min-w-0 items-baseline justify-between gap-2">
+          <h1 className="min-w-0 truncate text-lg font-bold leading-6">{workspace}</h1>
           {plan && (
-            <span className="text-xs text-gray-400">
+            <span className="shrink-0 text-[0.8125rem] leading-[18px] text-muted">
               v{plan.version} · {plan.updatedBy}
             </span>
           )}
         </div>
-        {plan?.title && <p className="text-sm text-gray-600">{plan.title}</p>}
+        {plan?.title && <p className="mt-0.5 truncate text-sm text-muted">{plan.title}</p>}
       </header>
 
       {error && <LoadError message={error} url={path} onRetry={load} />}
       {connectionError && (
-        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <p
+          role="status"
+          className="mb-4 rounded-card border border-warning bg-warning-subtle px-4 py-3 text-sm text-warning-foreground"
+        >
           {connectionError} Refreshing on focus is still enabled.
         </p>
       )}
       {readOnly && (
-        <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+        <p
+          role="status"
+          className="mb-4 rounded-card border border-info bg-info-subtle px-4 py-3 text-sm text-info-foreground"
+        >
           Read-only review mode. Editing, approval, and messages are disabled.
         </p>
       )}
@@ -238,50 +263,97 @@ export default function WorkspacePage() {
       {plan ? (
         <>
           <StaleWarning reasons={staleReasons(plan)} />
-          <section className="mb-3 rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-600">
-            <div className="flex flex-wrap items-center gap-2">
+          <section className="mb-4 rounded-card border border-border bg-surface p-4 text-sm text-muted shadow-card">
+            <div className="flex flex-wrap items-center gap-1.5">
               <DocumentTypeBadge type={plan.documentType} />
-              {syncFile && <span className="break-all">{syncFile.path}</span>}
+              {syncFile && (
+                <span className="min-w-0 break-all font-medium text-foreground">{syncFile.path}</span>
+              )}
               {workspaceFiles.length > 0 && (
-                <span className="text-xs text-gray-400">
+                <span className="text-[0.8125rem] leading-[18px] text-muted">
                   {workspaceFiles.length} file{workspaceFiles.length === 1 ? "" : "s"}
                 </span>
               )}
             </div>
-            <div className="mt-2 grid gap-1 text-xs text-gray-400">
-              <span>Updated {timeLabel(plan.updatedAt)}</span>
-              {plan.sourceBranch && <span>Branch {plan.sourceBranch}</span>}
-              {plan.sourceSha && <span>SHA {plan.sourceSha}</span>}
-              {plan.approvedAt && <span>Approved {timeLabel(plan.approvedAt)}</span>}
-            </div>
+            <dl className="mt-3 grid gap-1.5 text-[0.8125rem] leading-[18px] text-muted">
+              <div className="flex flex-wrap gap-x-1.5">
+                <dt className="font-medium text-foreground">Updated</dt>
+                <dd>{timeLabel(plan.updatedAt)}</dd>
+              </div>
+              {plan.sourceBranch && (
+                <div className="flex flex-wrap gap-x-1.5">
+                  <dt className="font-medium text-foreground">Branch</dt>
+                  <dd className="min-w-0 break-all">{plan.sourceBranch}</dd>
+                </div>
+              )}
+              {plan.sourceSha && (
+                <div className="flex flex-wrap gap-x-1.5">
+                  <dt className="font-medium text-foreground">SHA</dt>
+                  <dd className="min-w-0 break-all">{plan.sourceSha}</dd>
+                </div>
+              )}
+              {plan.approvedAt && (
+                <div className="flex flex-wrap gap-x-1.5">
+                  <dt className="font-medium text-foreground">Approved</dt>
+                  <dd>{timeLabel(plan.approvedAt)}</dd>
+                </div>
+              )}
+            </dl>
             {workspaceFiles.length > 0 && (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-xs font-bold text-gray-500">
+              <details className="group mt-3 border-t border-border pt-3">
+                <summary className="flex min-h-11 list-none items-center gap-2 rounded-control text-sm font-semibold text-foreground active:bg-surface-2 [&::-webkit-details-marker]:hidden">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 12 12"
+                    className="size-3 shrink-0 text-muted transition-transform group-open:rotate-90"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M4 2.5 8 6l-4 3.5" />
+                  </svg>
                   Workspace files ({workspaceFiles.length})
                 </summary>
-                <ul className="mt-1 list-disc space-y-1 pl-5 text-xs">
-                  {syncFile && (
-                    <li className="break-all">
-                      sync: {syncFile.path}
-                    </li>
-                  )}
+                <ul className="mt-2 space-y-1.5 pl-5 text-[0.8125rem] leading-[18px] text-muted">
+                  {syncFile && <li className="min-w-0 break-all">sync: {syncFile.path}</li>}
                   {referenceFiles.map((file) => (
-                    <li key={file.path} className="break-all">
+                    <li key={file.path} className="min-w-0 break-all">
                       reference: {file.path}
                     </li>
                   ))}
                 </ul>
               </details>
             )}
+            {!readOnly && (
+              <label
+                className={`mt-4 flex min-h-11 items-center justify-center gap-2 rounded-control border border-border-strong bg-surface px-4 text-sm font-semibold text-foreground transition active:scale-[0.98] active:bg-surface-2 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-surface${
+                  busy ? " pointer-events-none opacity-40" : ""
+                }`}
+              >
+                {busy && <span aria-hidden="true" className="spinner" />}
+                Upload files
+                <input
+                  type="file"
+                  multiple
+                  accept=".csv,.txt,.md,.json,.log,text/csv,text/plain,application/json,text/markdown"
+                  onChange={uploadFiles}
+                  disabled={busy}
+                  className="sr-only"
+                />
+              </label>
+            )}
           </section>
           {editing && (
-            <section className="mb-3 grid gap-2 rounded-xl border border-gray-200 bg-white px-3 py-3">
-              <label className="grid gap-1 text-sm font-bold text-gray-700">
+            <section className="row-fade-in mb-4 grid gap-4 rounded-card border border-border bg-surface p-4 shadow-card">
+              <label className="grid gap-1.5 text-sm font-semibold text-foreground">
                 Document type
                 <select
+                  aria-label="Document type"
                   value={draftDocumentType}
                   onChange={(event) => setDraftDocumentType(event.target.value as DocumentType)}
-                  className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-base font-normal outline-none focus:border-gray-500"
+                  className="min-h-11 rounded-control border border-border-strong bg-surface px-2 text-base font-normal text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
                 >
                   {DOCUMENT_TYPES.map((type) => (
                     <option key={type} value={type}>
@@ -290,38 +362,42 @@ export default function WorkspacePage() {
                   ))}
                 </select>
               </label>
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-bold text-gray-700">Workspace files</span>
-                  <div className="flex gap-2">
+              <div className="grid gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-semibold text-foreground">Workspace files</span>
+                  <div className="flex gap-3">
                     <button
                       type="button"
                       onClick={() => addDraftFile("sync")}
                       disabled={draftFiles.some((file) => file.role === "sync")}
-                      className="rounded-lg border border-gray-300 px-2 py-1 text-xs font-bold text-gray-700 disabled:opacity-40"
+                      className="min-h-11 rounded-control border border-border-strong bg-surface px-3 text-sm font-semibold text-foreground transition active:scale-[0.98] active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-40"
                     >
                       Add sync
                     </button>
                     <button
                       type="button"
                       onClick={() => addDraftFile("reference")}
-                      className="rounded-lg border border-gray-300 px-2 py-1 text-xs font-bold text-gray-700"
+                      className="min-h-11 rounded-control border border-border-strong bg-surface px-3 text-sm font-semibold text-foreground transition active:scale-[0.98] active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                     >
                       Add ref
                     </button>
                   </div>
                 </div>
                 {draftFiles.length === 0 && (
-                  <p className="text-xs text-gray-400">No workspace files attached.</p>
+                  <p className="text-sm text-muted">No workspace files attached.</p>
                 )}
                 {draftFiles.map((file, index) => (
-                  <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[7rem_1fr_auto]">
+                  <div
+                    key={index}
+                    className="grid grid-cols-[6rem_1fr_auto] gap-2"
+                  >
                     <select
+                      aria-label={`File ${index + 1} role`}
                       value={file.role}
                       onChange={(event) =>
                         updateDraftFile(index, { role: event.target.value as WorkspaceFileRole })
                       }
-                      className="min-h-11 rounded-lg border border-gray-300 bg-white px-2 text-sm outline-none focus:border-gray-500"
+                      className="min-h-11 rounded-control border border-border-strong bg-surface px-2 text-base text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
                     >
                       {WORKSPACE_FILE_ROLES.map((role) => (
                         <option key={role} value={role}>
@@ -330,15 +406,16 @@ export default function WorkspacePage() {
                       ))}
                     </select>
                     <input
+                      aria-label={`File ${index + 1} path`}
                       value={file.path}
                       onChange={(event) => updateDraftFile(index, { path: event.target.value })}
                       placeholder="docs/reports/example.md"
-                      className="min-h-11 min-w-0 rounded-lg border border-gray-300 bg-white px-3 text-base outline-none focus:border-gray-500"
+                      className="min-h-11 min-w-0 rounded-control border border-border-strong bg-surface px-3 text-base text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface placeholder:text-muted"
                     />
                     <button
                       type="button"
                       onClick={() => removeDraftFile(index)}
-                      className="min-h-11 rounded-lg border border-gray-300 px-3 text-sm font-bold text-gray-700"
+                      className="min-h-11 rounded-control border border-border-strong bg-surface px-3 text-sm font-semibold text-foreground transition active:scale-[0.98] active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                     >
                       Remove
                     </button>
@@ -353,7 +430,27 @@ export default function WorkspacePage() {
           )}
         </>
       ) : (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <div aria-hidden="true" className="space-y-4">
+          <div className="rounded-card border border-border bg-surface p-4 shadow-card">
+            <div className="flex items-center gap-2">
+              <div className="h-5 w-16 animate-pulse rounded-full bg-surface-2" />
+              <div className="h-4 w-40 animate-pulse rounded bg-surface-2" />
+            </div>
+            <div className="mt-3 space-y-2">
+              <div className="h-3 w-28 animate-pulse rounded bg-surface-2" />
+              <div className="h-3 w-36 animate-pulse rounded bg-surface-2" />
+            </div>
+          </div>
+          <div className="space-y-2 rounded-card border border-border bg-surface p-4 shadow-card">
+            <div className="h-4 w-3/4 animate-pulse rounded bg-surface-2" />
+            <div className="h-4 w-full animate-pulse rounded bg-surface-2" />
+            <div className="h-4 w-5/6 animate-pulse rounded bg-surface-2" />
+            <div className="h-4 w-2/3 animate-pulse rounded bg-surface-2" />
+          </div>
+          <div className="h-16 animate-pulse rounded-card border border-border bg-surface shadow-card" />
+          <div className="h-16 animate-pulse rounded-card border border-l-2 border-accent border-accent-subtle bg-accent-subtle shadow-card" />
+          <span className="sr-only">Loading…</span>
+        </div>
       )}
 
       {plan && !readOnly && (

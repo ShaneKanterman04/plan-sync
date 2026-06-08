@@ -1,12 +1,12 @@
 import type { Status } from "@/lib/types";
 
 const STYLES: Record<Status, string> = {
-  draft: "bg-gray-100 text-gray-700",
-  review: "bg-amber-100 text-amber-800",
-  changes_requested: "bg-rose-100 text-rose-800",
-  approved: "bg-emerald-100 text-emerald-800",
-  implementing: "bg-blue-100 text-blue-800",
-  done: "bg-violet-100 text-violet-800",
+  draft: "bg-(--color-st-draft-bg) text-(--color-st-draft-fg)",
+  review: "bg-(--color-st-review-bg) text-(--color-st-review-fg)",
+  changes_requested: "bg-(--color-st-changes-bg) text-(--color-st-changes-fg)",
+  approved: "bg-(--color-st-approved-bg) text-(--color-st-approved-fg)",
+  implementing: "bg-(--color-st-impl-bg) text-(--color-st-impl-fg)",
+  done: "bg-(--color-st-done-bg) text-(--color-st-done-fg)",
 };
 
 const LABELS: Record<Status, string> = {
@@ -21,7 +21,8 @@ const LABELS: Record<Status, string> = {
 export function StatusBadge({ status }: { status: Status }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${STYLES[status]}`}
+      title={LABELS[status]}
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${STYLES[status]}`}
     >
       {LABELS[status]}
     </span>
