@@ -3,7 +3,9 @@ import {
   DOCUMENT_TYPES,
   MESSAGE_KINDS,
   PLUGIN_RUN_STATES,
+  REACTION_EMOJIS,
   STATUSES,
+  WEBHOOK_EVENTS,
   WORKSPACE_FILE_ROLES,
   type Status,
 } from "@/lib/types";
@@ -14,6 +16,34 @@ export const messageKindSchema = z.enum(MESSAGE_KINDS);
 export const documentTypeSchema = z.enum(DOCUMENT_TYPES);
 export const pluginRunStateSchema = z.enum(PLUGIN_RUN_STATES);
 export const workspaceFileRoleSchema = z.enum(WORKSPACE_FILE_ROLES);
+export const reactionEmojiSchema = z.enum(REACTION_EMOJIS);
+export const webhookEventSchema = z.enum(WEBHOOK_EVENTS);
+
+export const postReactionSchema = z.object({
+  author: authorSchema,
+  messageId: z.string().trim().min(1).max(120),
+  emoji: reactionEmojiSchema,
+});
+
+export const postWebhookSchema = z.object({
+  author: authorSchema.optional(),
+  url: z
+    .string()
+    .trim()
+    .url()
+    .max(2000)
+    .refine(
+      (value) => /^https?:\/\//i.test(value),
+      "webhook url must be http or https",
+    ),
+  events: z
+    .array(webhookEventSchema)
+    .max(WEBHOOK_EVENTS.length)
+    .optional()
+    .default([...WEBHOOK_EVENTS]),
+  secret: z.string().trim().max(200).optional().default(""),
+  active: z.boolean().optional().default(true),
+});
 
 export const workspaceNameSchema = z
   .string()

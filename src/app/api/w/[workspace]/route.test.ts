@@ -155,3 +155,21 @@ describe("workspace upload API", () => {
     expect(await oversized.json()).toEqual({ error: "upload file exceeds 10 MB: large.csv" });
   });
 });
+
+describe("workspace plan API webhook dispatch", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("PUT makes ZERO fetch calls when no webhooks are registered", async () => {
+    const fetchMock = jest.fn(async () => new Response("ok", { status: 200 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await PUT(
+      request({ author: "agent", bodyMd: "# Plan" }),
+      ctx("api-webhook-noop"),
+    );
+    expect(res.status).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

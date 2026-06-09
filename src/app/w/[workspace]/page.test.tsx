@@ -355,6 +355,292 @@ describe("WorkspacePage file editing", () => {
   });
 });
 
+describe("WorkspacePage keyboard shortcuts", () => {
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    searchParams = new URLSearchParams();
+    (global as unknown as { EventSource: typeof MockEventSource }).EventSource =
+      MockEventSource;
+    fetchMock = jest.fn();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ plan, messages: firstMessages }))
+      .mockResolvedValue(jsonResponse({ plan, messages: firstMessages }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      localStorage.clear();
+    } catch {
+      // jsdom localStorage; ignore if unavailable.
+    }
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("E enters edit mode", async () => {
+    const user = userEvent.setup();
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    // No edit panel until the shortcut fires.
+    expect(screen.queryByRole("button", { name: "Save edits" })).toBeNull();
+
+    await user.keyboard("e");
+
+    // Edit mode reveals the Save edits / Cancel controls.
+    await screen.findByRole("button", { name: "Save edits" });
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  test("A approves via a PATCH to status", async () => {
+    const user = userEvent.setup();
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    await user.keyboard("a");
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/w/demo/status" &&
+            (init as RequestInit | undefined)?.method === "PATCH",
+        ),
+      ).toBe(true),
+    );
+    const patchCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/api/w/demo/status" &&
+        (init as RequestInit | undefined)?.method === "PATCH",
+    );
+    const body = JSON.parse((patchCall?.[1] as RequestInit).body as string);
+    expect(body.status).toBe("approved");
+    expect(body.author).toBe("human");
+  });
+
+  test("R opens the request-changes modal", async () => {
+    const user = userEvent.setup();
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    await user.keyboard("r");
+
+    // The modal exposes the changes prompt textarea.
+    await screen.findByPlaceholderText("What changes are needed?");
+  });
+
+  test("shortcuts do nothing while typing in the reply box", async () => {
+    const user = userEvent.setup();
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    const textarea = screen.getByPlaceholderText("Reply to the agent…");
+    await user.click(textarea);
+    await user.keyboard("eat the api");
+
+    // No edit panel, no status PATCH, no modal — the keystrokes were just text.
+    expect(textarea).toHaveValue("eat the api");
+    expect(screen.queryByRole("button", { name: "Save edits" })).toBeNull();
+    expect(screen.queryByPlaceholderText("What changes are needed?")).toBeNull();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          url === "/api/w/demo/status" &&
+          (init as RequestInit | undefined)?.method === "PATCH",
+      ),
+    ).toBe(false);
+  });
+
+  test("shortcuts are inert in read-only mode", async () => {
+    searchParams = new URLSearchParams("readonly=1");
+    const user = userEvent.setup();
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    await user.keyboard("e");
+    await user.keyboard("a");
+    await user.keyboard("r");
+
+    expect(screen.queryByRole("button", { name: "Save edits" })).toBeNull();
+    expect(screen.queryByPlaceholderText("What changes are needed?")).toBeNull();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          url === "/api/w/demo/status" &&
+          (init as RequestInit | undefined)?.method === "PATCH",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("WorkspacePage theme + reactions", () => {
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    searchParams = new URLSearchParams();
+    (global as unknown as { EventSource: typeof MockEventSource }).EventSource =
+      MockEventSource;
+    fetchMock = jest.fn();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ plan, messages: firstMessages }))
+      .mockResolvedValue(jsonResponse({ plan, messages: firstMessages }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      localStorage.clear();
+    } catch {
+      // ignore
+    }
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("renders the theme toggle in the header", async () => {
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    const group = screen.getByRole("group", { name: "Theme" });
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /dark/i })).toBeInTheDocument();
+  });
+
+  test("clicking an add-reaction control POSTs to the reactions API then reloads", async () => {
+    const user = userEvent.setup();
+    render(<WorkspacePage />);
+    await screen.findByText("Original message");
+
+    const callsBefore = fetchMock.mock.calls.length;
+
+    // The fixture message has no reactions yet, so only add-reaction buttons show.
+    await user.click(screen.getByRole("button", { name: "React with 👍" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/w/demo/reactions" &&
+            (init as RequestInit | undefined)?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    const reactCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/api/w/demo/reactions" &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((reactCall?.[1] as RequestInit).body as string);
+    expect(body).toMatchObject({ author: "human", messageId: "m1", emoji: "👍" });
+
+    // A reload GET follows the reaction so the chips reflect server state.
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBefore + 1),
+    );
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === "/api/w/demo").length,
+    ).toBeGreaterThan(1);
+  });
+});
+
+describe("WorkspacePage unread divider", () => {
+  let fetchMock: jest.Mock;
+
+  // A previously-seen older message plus a brand-new unread one.
+  const oldMessage: Message = {
+    id: "old",
+    workspace: "demo",
+    author: "agent",
+    kind: "note",
+    body: "Seen before",
+    createdAt: "2026-06-04T00:00:00.000Z",
+  };
+  const newMessage: Message = {
+    id: "new",
+    workspace: "demo",
+    author: "agent",
+    kind: "note",
+    body: "Brand new reply",
+    createdAt: "2026-06-05T00:00:00.000Z",
+  };
+  const dividerMessages: Message[] = [oldMessage, newMessage];
+
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    searchParams = new URLSearchParams();
+    (global as unknown as { EventSource: typeof MockEventSource }).EventSource =
+      MockEventSource;
+    fetchMock = jest.fn();
+    fetchMock.mockResolvedValue(jsonResponse({ plan, messages: dividerMessages }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      localStorage.clear();
+    } catch {
+      // jsdom localStorage; ignore if unavailable.
+    }
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("renders the 'New messages' divider for messages after the persisted last-seen cursor", async () => {
+    // Simulate a previous visit: the human saw only the old message (count 1,
+    // anchored at the old message timestamp). The new message arrived since.
+    try {
+      localStorage.setItem(
+        "plansync:lastSeen:demo",
+        JSON.stringify({ at: "2026-06-04T00:00:00.000Z", count: 1 }),
+      );
+    } catch {
+      // ignore
+    }
+
+    render(<WorkspacePage />);
+
+    // Both messages render after the load.
+    await screen.findByText("Seen before");
+    await screen.findByText("Brand new reply");
+
+    // The divider must survive markSeen() advancing the live last-seen cursor
+    // inside load(): the anchor is snapshotted at mount, so the divider still
+    // marks the boundary before the unread message.
+    const divider = await screen.findByRole("separator", { name: "New messages" });
+    expect(divider).toBeInTheDocument();
+  });
+
+  test("renders no divider on a first-ever visit (no persisted cursor)", async () => {
+    render(<WorkspacePage />);
+
+    await screen.findByText("Seen before");
+    await screen.findByText("Brand new reply");
+
+    // Never seen before -> anchor is null -> no boundary to draw.
+    expect(screen.queryByRole("separator", { name: "New messages" })).toBeNull();
+  });
+
+  test("renders no divider when the persisted cursor already covers the newest message", async () => {
+    // The human had already seen everything, including the newest message.
+    try {
+      localStorage.setItem(
+        "plansync:lastSeen:demo",
+        JSON.stringify({ at: "2026-06-05T00:00:00.000Z", count: 2 }),
+      );
+    } catch {
+      // ignore
+    }
+
+    render(<WorkspacePage />);
+
+    await screen.findByText("Seen before");
+    await screen.findByText("Brand new reply");
+
+    expect(screen.queryByRole("separator", { name: "New messages" })).toBeNull();
+  });
+});
+
 describe("WorkspacePage sendMessage error handling", () => {
   let fetchMock: jest.Mock;
 

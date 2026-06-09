@@ -3,17 +3,22 @@ import {
   addMessage,
   appendProof,
   createPluginRun,
+  createWebhook,
   db,
+  deleteWebhook,
   ensurePlan,
   getMessages,
   getPlan,
   getPluginRun,
   getRevisions,
+  listActiveWebhooks,
   listPluginRuns,
+  listWebhooks,
   pollSnapshot,
   putPlanBody,
   setStatus,
   staleReasons,
+  toggleReaction,
 } from "@/lib/db";
 
 describe("status transitions", () => {
@@ -259,5 +264,148 @@ describe("plan data access", () => {
     expect(snap.version).toBe(1);
     expect(snap.messageCount).toBe(1);
     expect(snap.lastMessageAt).not.toBeNull();
+  });
+});
+
+describe("reactions", () => {
+  test("toggleReaction adds on the first call and removes on the second", () => {
+    const ws = "test-react-toggle";
+    putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
+    const msg = addMessage({ workspace: ws, author: "agent", body: "hello" });
+
+    const on = toggleReaction({ workspace: ws, messageId: msg.id, emoji: "👍", author: "human" });
+    expect(on.toggled).toBe("on");
+    expect(on.reaction).not.toBeNull();
+    expect(on.reaction!.emoji).toBe("👍");
+    expect(on.reaction!.workspace).toBe(ws);
+
+    const off = toggleReaction({ workspace: ws, messageId: msg.id, emoji: "👍", author: "human" });
+    expect(off.toggled).toBe("off");
+    expect(off.reaction).toBeNull();
+  });
+
+  test("getMessages aggregates a count across two authors reacting with the same emoji", () => {
+    const ws = "test-react-count";
+    putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
+    const msg = addMessage({ workspace: ws, author: "agent", body: "review me" });
+
+    toggleReaction({ workspace: ws, messageId: msg.id, emoji: "✅", author: "human" });
+    toggleReaction({ workspace: ws, messageId: msg.id, emoji: "✅", author: "agent" });
+
+    const [loaded] = getMessages(ws);
+    const summary = loaded.reactions?.find((r) => r.emoji === "✅");
+    expect(summary?.count).toBe(2);
+  });
+
+  test("getMessages flags mine only for the viewer's own reaction", () => {
+    const ws = "test-react-mine";
+    putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
+    const msg = addMessage({ workspace: ws, author: "agent", body: "thoughts?" });
+
+    toggleReaction({ workspace: ws, messageId: msg.id, emoji: "👀", author: "human" });
+    toggleReaction({ workspace: ws, messageId: msg.id, emoji: "🎉", author: "agent" });
+
+    const [asHuman] = getMessages(ws, undefined, "human");
+    const humanEyes = asHuman.reactions?.find((r) => r.emoji === "👀");
+    const humanParty = asHuman.reactions?.find((r) => r.emoji === "🎉");
+    expect(humanEyes?.mine).toBe(true);
+    expect(humanParty?.mine).toBe(false);
+  });
+
+  test("getMessages with a sinceIso filter still attaches reactions", () => {
+    const ws = "test-react-since";
+    putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
+    const first = addMessage({ workspace: ws, author: "agent", body: "first" });
+    const second = addMessage({ workspace: ws, author: "agent", body: "second" });
+    toggleReaction({ workspace: ws, messageId: second.id, emoji: "👍", author: "human" });
+
+    const recent = getMessages(ws, first.createdAt);
+    const loaded = recent.find((m) => m.id === second.id);
+    expect(loaded?.reactions?.find((r) => r.emoji === "👍")?.count).toBe(1);
+  });
+
+  test("getMessages without a viewer omits the mine flag", () => {
+    const ws = "test-react-noviewer";
+    putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
+    const msg = addMessage({ workspace: ws, author: "agent", body: "anon" });
+    toggleReaction({ workspace: ws, messageId: msg.id, emoji: "👍", author: "human" });
+
+    const [loaded] = getMessages(ws);
+    const summary = loaded.reactions?.find((r) => r.emoji === "👍");
+    expect(summary?.count).toBe(1);
+    expect(summary?.mine).toBeUndefined();
+  });
+
+  test("toggleReaction throws for an unknown message id", () => {
+    const ws = "test-react-unknown";
+    putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
+    expect(() =>
+      toggleReaction({ workspace: ws, messageId: "does-not-exist", emoji: "👍", author: "human" }),
+    ).toThrow("message not found");
+  });
+});
+
+describe("webhooks", () => {
+  test("createWebhook stores a hook reflected by list and active list; deleteWebhook is idempotent", () => {
+    const ws = "test-webhook-crud";
+    putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
+
+    const active = createWebhook({
+      workspace: ws,
+      url: "https://example.com/hook",
+      events: ["plan", "status"],
+      secret: "s3cret",
+      active: true,
+    });
+    const inactive = createWebhook({
+      workspace: ws,
+      url: "https://example.com/off",
+      events: ["message"],
+      active: false,
+    });
+
+    expect(active.active).toBe(true);
+    expect(active.events).toEqual(["plan", "status"]);
+    expect(inactive.active).toBe(false);
+
+    expect(listWebhooks(ws).map((w) => w.id).sort()).toEqual([active.id, inactive.id].sort());
+    expect(listActiveWebhooks(ws).map((w) => w.id)).toEqual([active.id]);
+
+    expect(deleteWebhook(ws, active.id)).toBe(true);
+    expect(deleteWebhook(ws, active.id)).toBe(false);
+    expect(listWebhooks(ws).map((w) => w.id)).toEqual([inactive.id]);
+  });
+
+  test("createWebhook enforces the per-workspace cap of 20", () => {
+    const ws = "test-webhook-cap";
+    putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
+    for (let i = 0; i < 20; i++) {
+      createWebhook({ workspace: ws, url: `https://example.com/${i}`, events: ["plan"] });
+    }
+    expect(() =>
+      createWebhook({ workspace: ws, url: "https://example.com/21", events: ["plan"] }),
+    ).toThrow(/webhook limit reached/);
+  });
+
+  test("webhookRow parses events, coerces active, and tolerates malformed JSON", () => {
+    const ws = "test-webhook-rows";
+    putPlanBody({ workspace: ws, bodyMd: "plan", author: "agent" });
+    const at = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO webhooks (id, workspace, url, secret, events, active, created_at, updated_at)
+       VALUES (?, ?, ?, '', ?, ?, ?, ?)`,
+    ).run("wh-malformed", ws, "https://example.com/x", "not-json", 1, at, at);
+    db.prepare(
+      `INSERT INTO webhooks (id, workspace, url, secret, events, active, created_at, updated_at)
+       VALUES (?, ?, ?, '', ?, ?, ?, ?)`,
+    ).run("wh-events", ws, "https://example.com/y", JSON.stringify(["plan", "proof", "bogus"]), 0, at, at);
+
+    const hooks = listWebhooks(ws);
+    const malformed = hooks.find((w) => w.id === "wh-malformed")!;
+    const events = hooks.find((w) => w.id === "wh-events")!;
+    expect(malformed.events).toEqual([]);
+    expect(malformed.active).toBe(true);
+    expect(events.events).toEqual(["plan", "proof"]);
+    expect(events.active).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import { ensurePlan, getMessages, putPlanBody } from "@/lib/db";
 import { broadcast } from "@/lib/events";
 import { fail, readWorkspace } from "@/lib/http";
 import { putPlanSchema } from "@/lib/schema";
+import { dispatchWebhooks } from "@/lib/webhooks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   try {
     const workspace = await readWorkspace(params);
     const plan = ensurePlan(workspace);
-    return NextResponse.json({ plan, messages: getMessages(workspace) });
+    return NextResponse.json({ plan, messages: getMessages(workspace, undefined, "human") });
   } catch (error) {
     return fail(error);
   }
@@ -29,6 +30,7 @@ export async function PUT(req: Request, { params }: Ctx) {
     const input = putPlanSchema.parse(await req.json());
     const plan = putPlanBody({ workspace, ...input });
     broadcast(workspace);
+    void dispatchWebhooks(workspace, "plan");
     return NextResponse.json({ plan });
   } catch (error) {
     return fail(error);

@@ -95,6 +95,12 @@
   --md-rule: #cdd2da;
 }
 
+/* ----------------------------------------------------------------------------
+   DARK token values, shared by the system "auto" fallback AND the explicit
+   manual override (html[data-theme="dark"]). Kept in sync via a CSS custom
+   property convention: edit values in ONE place below and they apply to both
+   selectors. (CSS has no @mixin, so the two selector lists share one body.)
+   --------------------------------------------------------------------------- */
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0b0e14;
@@ -164,6 +170,156 @@
     --md-quote-fg: #9aa4b2;
     --md-rule: #39414e;
   }
+}
+
+/* ----------------------------------------------------------------------------
+   MANUAL THEME OVERRIDES — a user-chosen theme (persisted in localStorage as
+   plansync:theme and applied via <html data-theme="…"> by the no-FOUC script
+   in layout.tsx + useTheme). These DEFEAT the @media (prefers-color-scheme)
+   auto fallback because an attribute selector on :root outweighs the media
+   query's :root rule for the SAME custom properties. "auto" leaves the
+   attribute unset, so the @media block above keeps following the system.
+
+   html[data-theme="dark"] mirrors the @media dark values verbatim.
+   --------------------------------------------------------------------------- */
+:root[data-theme="dark"] {
+  --background: #0b0e14;
+  --foreground: #e6e9ef;
+
+  --color-surface: #13171f;
+  --color-surface-2: #1b2029;
+  --color-surface-raised: #1b2029;
+
+  --color-border: #262d38;
+  --color-border-strong: #39414e;
+
+  --color-muted: #9aa4b2;
+  --color-faint: #7e8896;
+
+  --color-primary: #7c83ff;
+  --color-primary-foreground: #0b0e14;
+  --color-accent: #7c83ff;
+  --color-accent-hover: #9298ff;
+  --color-accent-subtle: #1c1f3a;
+  --color-accent-subtle-foreground: #b9bdff;
+
+  --color-success: #2ea37c;
+  --color-success-foreground: #0b0e14;
+  --color-success-subtle: #0f2a22;
+
+  --color-warning: #d9952b;
+  --color-warning-subtle: #2c2310;
+  --color-warning-foreground: #f0c277;
+
+  --color-danger: #e2607d;
+  --color-danger-subtle: #2e1620;
+  --color-danger-foreground: #f3a3b5;
+
+  --color-info: #5b9bff;
+  --color-info-subtle: #102338;
+  --color-info-foreground: #9cc4ff;
+
+  --color-done: #a48bf0;
+  --color-done-subtle: #211a3a;
+
+  --color-st-draft-bg: #1b2029;
+  --color-st-draft-fg: #cbd5e1;
+  --color-st-review-bg: #3a2e0c;
+  --color-st-review-fg: #fcd34d;
+  --color-st-changes-bg: #3d1620;
+  --color-st-changes-fg: #fda4af;
+  --color-st-approved-bg: #08321f;
+  --color-st-approved-fg: #6ee7b7;
+  --color-st-impl-bg: #12243f;
+  --color-st-impl-fg: #93c5fd;
+  --color-st-done-bg: #241640;
+  --color-st-done-fg: #c4b5fd;
+
+  --color-doctype-fg: #9aa4b2;
+
+  --color-ring: #7c83ff;
+
+  --color-overlay: rgba(0, 0, 0, 0.62);
+
+  --md-link: #8fa6ff;
+  --md-code-bg: #1b2029;
+  --md-code-fg: #e6e9ef;
+  --md-pre-bg: #080a0f;
+  --md-pre-fg: #e6e9ef;
+  --md-quote-border: #39414e;
+  --md-quote-fg: #9aa4b2;
+  --md-rule: #39414e;
+}
+
+/* html[data-theme="light"] mirrors the :root LIGHT defaults verbatim so a
+   manual "light" choice wins even when the OS prefers dark. */
+:root[data-theme="light"] {
+  --background: #f7f8fa;
+  --foreground: #0d1117;
+
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f3f6;
+  --color-surface-raised: #ffffff;
+
+  --color-border: #e3e6eb;
+  --color-border-strong: #cdd2da;
+
+  --color-muted: #5b6573;
+  --color-faint: #5f6b7a;
+
+  --color-primary: #4f46e5;
+  --color-primary-foreground: #ffffff;
+  --color-accent: #4f46e5;
+  --color-accent-hover: #4338ca;
+  --color-accent-subtle: #eef0fe;
+  --color-accent-subtle-foreground: #3730a3;
+
+  --color-success: #067a5b;
+  --color-success-foreground: #ffffff;
+  --color-success-subtle: #daf3ea;
+
+  --color-warning: #9a5b00;
+  --color-warning-subtle: #fdf0d9;
+  --color-warning-foreground: #7a4700;
+
+  --color-danger: #c0294a;
+  --color-danger-subtle: #fde7ec;
+  --color-danger-foreground: #8f1d37;
+
+  --color-info: #1f6feb;
+  --color-info-subtle: #e2eefb;
+  --color-info-foreground: #114a9e;
+
+  --color-done: #6d4bd8;
+  --color-done-subtle: #ece6fb;
+
+  --color-st-draft-bg: #f1f3f6;
+  --color-st-draft-fg: #475160;
+  --color-st-review-bg: #fdf0d9;
+  --color-st-review-fg: #7a4700;
+  --color-st-changes-bg: #fde7ec;
+  --color-st-changes-fg: #9b1c2e;
+  --color-st-approved-bg: #d1fadf;
+  --color-st-approved-fg: #06603a;
+  --color-st-impl-bg: #e2eefb;
+  --color-st-impl-fg: #114a9e;
+  --color-st-done-bg: #ece6fb;
+  --color-st-done-fg: #4a2fa6;
+
+  --color-doctype-fg: #5b6573;
+
+  --color-ring: #4f46e5;
+
+  --color-overlay: rgba(13, 17, 23, 0.45);
+
+  --md-link: #3056d6;
+  --md-code-bg: #f1f3f6;
+  --md-code-fg: #0d1117;
+  --md-pre-bg: #0d1117;
+  --md-pre-fg: #e6e9ef;
+  --md-quote-border: #cdd2da;
+  --md-quote-fg: #5b6573;
+  --md-rule: #cdd2da;
 }
 
 /* ----------------------------------------------------------------------------

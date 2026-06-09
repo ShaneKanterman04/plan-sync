@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import type { WorkspaceSummary } from "@/lib/types";
 import Home from "./page";
 
@@ -197,5 +197,87 @@ describe("Home SSE wiring", () => {
     await screen.findByText(/Live updates disconnected from \/api\/workspaces\/events\./);
     expect(setIntervalSpy.mock.calls.some(([, delay]) => delay === 2000)).toBe(true);
     expect(pollingTimerCalls(setIntervalSpy)).toHaveLength(0);
+  });
+
+  test("mounts the theme toggle in the header", async () => {
+    render(<Home />);
+    await screen.findByText("alpha");
+
+    // Segmented Light / Auto / Dark control from ThemeToggle.
+    const group = screen.getByRole("group", { name: "Theme" });
+    expect(group).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: /dark/i })).toBeInTheDocument();
+  });
+});
+
+// --- Unread badge -------------------------------------------------------------
+
+// A workspace with messages, used only by the unread-badge tests so the SSE
+// fixtures above stay untouched.
+const withMessages: WorkspaceSummary[] = [
+  {
+    workspace: "charlie",
+    title: "Charlie plan",
+    documentType: "plan",
+    linkedFile: "",
+    primaryFile: "",
+    files: [],
+    fileCount: 0,
+    status: "review",
+    version: 2,
+    updatedBy: "agent",
+    updatedAt: "2026-06-04T00:02:00.000Z",
+    messageCount: 4,
+    lastMessageAt: "2026-06-04T00:02:00.000Z",
+    lastMessagePreview: "needs another look",
+    staleReasons: [],
+  },
+];
+
+describe("Home unread badge", () => {
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    (global as unknown as { EventSource: typeof MockEventSource }).EventSource =
+      MockEventSource;
+
+    const fetchMock = jest.fn().mockResolvedValue(
+      jsonResponse({ workspaces: withMessages }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    jest.clearAllMocks();
+  });
+
+  test("shows an unread badge when messageCount exceeds the seen count", async () => {
+    // Seen 1 of 4 messages → 3 unread.
+    localStorage.setItem(
+      "plansync:lastSeen:charlie",
+      JSON.stringify({ at: "2026-06-04T00:00:30.000Z", count: 1 }),
+    );
+
+    render(<Home />);
+    await screen.findByText("charlie");
+
+    const badge = await screen.findByLabelText("3 unread messages");
+    expect(badge).toHaveTextContent("3");
+  });
+
+  test("hides the unread badge when the seen count matches messageCount", async () => {
+    // Already seen all 4 messages → no unread badge.
+    localStorage.setItem(
+      "plansync:lastSeen:charlie",
+      JSON.stringify({ at: "2026-06-04T00:02:00.000Z", count: 4 }),
+    );
+
+    render(<Home />);
+    // Workspace name still renders (getByText must keep working).
+    await screen.findByText("charlie");
+
+    expect(screen.queryByLabelText(/unread message/)).toBeNull();
   });
 });

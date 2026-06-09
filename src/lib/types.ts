@@ -31,6 +31,47 @@ export const MESSAGE_KINDS = [
 ] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
 
+export const REACTION_EMOJIS = ["👍", "👀", "✅", "🎉"] as const;
+export type ReactionEmoji = (typeof REACTION_EMOJIS)[number];
+
+export type ReactionSummary = {
+  emoji: ReactionEmoji;
+  count: number;
+  mine?: boolean;
+};
+
+export type Reaction = {
+  id: string;
+  workspace: string;
+  messageId: string;
+  emoji: ReactionEmoji;
+  author: Author;
+  createdAt: string;
+};
+
+export const WEBHOOK_EVENTS = ["plan", "status", "message", "proof"] as const;
+export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
+
+export type Webhook = {
+  id: string;
+  workspace: string;
+  url: string;
+  secret: string;
+  events: WebhookEvent[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WebhookPayload = {
+  workspace: string;
+  event: WebhookEvent;
+  version: number;
+  status: Status;
+  at: string;
+  messageId?: string;
+};
+
 export const PLUGIN_RUN_STATES = [
   "waiting",
   "approved",
@@ -72,6 +113,7 @@ export type Message = {
   kind: MessageKind;
   body: string;
   createdAt: string;
+  reactions?: ReactionSummary[];
 };
 
 export type PluginRun = {

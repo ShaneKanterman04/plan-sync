@@ -21,6 +21,8 @@ import { MessageThread } from "@/components/MessageThread";
 import { PlanView } from "@/components/PlanView";
 import { StaleWarning } from "@/components/StaleWarning";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useLastSeen } from "@/components/useLastSeen";
 import { useLiveReload } from "@/components/useLiveReload";
 
 function staleReasons(plan: Plan): string[] {
@@ -65,28 +67,109 @@ export default function WorkspacePage() {
   const [error, setError] = useState("");
   const [showChangesModal, setShowChangesModal] = useState(false);
 
+  const { firstUnreadAfter, markSeen } = useLastSeen(workspace);
+
   // Avoid clobbering the textarea with poll results while the human edits.
   const editingRef = useRef(false);
   useEffect(() => {
     editingRef.current = editing;
   }, [editing]);
 
+  // The "new messages" divider anchors to the last-seen timestamp from the
+  // PREVIOUS visit (null on a first-ever view). MessageThread flags messages
+  // whose createdAt is strictly after this.
+  //
+  // We must SNAPSHOT this once on mount: useLastSeen hydrates stored.at
+  // synchronously on the first render, but load() calls markSeen() on every
+  // fetch, which advances stored.at (= firstUnreadAfter) to the NEWEST message's
+  // timestamp. Reading it live would mean the very render that first paints the
+  // thread already sees the cursor at "newest", so no message is strictly after
+  // it and the divider never appears. Latching the pre-load value in a ref keeps
+  // the divider anchored to where the human last left off, independent of how
+  // many times markSeen runs afterward.
+  const visitAnchorRef = useRef<string | null>(firstUnreadAfter);
+  const firstUnreadAt = visitAnchorRef.current;
+
   const load = useCallback(async () => {
     try {
       const data = await api<{ plan: Plan; messages: Message[] }>(path);
       setMessages(data.messages);
       if (!editingRef.current) setPlan(data.plan);
+      markSeen({
+        lastMessageAt: data.messages.at(-1)?.createdAt ?? null,
+        messageCount: data.messages.length,
+      });
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load.");
     }
-  }, [path]);
+  }, [path, markSeen]);
 
   const connectionError = useLiveReload({
     url: `${path}/events`,
     load,
     disconnectMessage: `Live updates disconnected from ${path}/events.`,
   });
+
+  // Re-mark seen when the tab regains focus so the unread badge clears once the
+  // human returns to a thread they were already viewing.
+  useEffect(() => {
+    function onFocus() {
+      markSeen({
+        lastMessageAt: messages.at(-1)?.createdAt ?? null,
+        messageCount: messages.length,
+      });
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [markSeen, messages]);
+
+  async function onReact(messageId: string, emoji: string) {
+    if (readOnly) return;
+    await api(`${path}/reactions`, {
+      method: "POST",
+      body: JSON.stringify({ author: "human", messageId, emoji }),
+    });
+    await load();
+  }
+
+  // Keyboard shortcuts: E = edit, A = approve, R = request changes. Deliberately
+  // inert while the human is typing (input/textarea/select/contentEditable), when
+  // a modifier is held (so browser/OS chords pass through), in read-only mode,
+  // while already editing, or while the request-changes modal is open.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (readOnly || editing || showChangesModal) return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      const key = event.key.toLowerCase();
+      if (key === "e") {
+        event.preventDefault();
+        startEdit();
+      } else if (key === "a") {
+        event.preventDefault();
+        void approve();
+      } else if (key === "r") {
+        event.preventDefault();
+        setShowChangesModal(true);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // startEdit/approve are stable function declarations; gate on the guard state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly, editing, showChangesModal, plan]);
 
   async function act(fn: () => Promise<void>) {
     setBusy(true);
@@ -229,7 +312,10 @@ export default function WorkspacePage() {
           >
             ← all plans
           </Link>
-          {plan && <StatusBadge status={plan.status} />}
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            {plan && <StatusBadge status={plan.status} />}
+          </div>
         </nav>
         <div className="mt-1 flex min-w-0 items-baseline justify-between gap-2">
           <h1 className="min-w-0 truncate text-lg font-bold leading-6">{workspace}</h1>
@@ -426,7 +512,13 @@ export default function WorkspacePage() {
           )}
           <PlanView editing={editing} body={plan.bodyMd} draft={draft} onDraftChange={setDraft} />
           {!editing && (
-            <MessageThread messages={messages} onSend={sendMessage} readOnly={readOnly} />
+            <MessageThread
+              messages={messages}
+              onSend={sendMessage}
+              readOnly={readOnly}
+              onReact={readOnly ? undefined : onReact}
+              firstUnreadAt={firstUnreadAt}
+            />
           )}
         </>
       ) : (
@@ -451,6 +543,15 @@ export default function WorkspacePage() {
           <div className="h-16 animate-pulse rounded-card border border-l-2 border-accent border-accent-subtle bg-accent-subtle shadow-card" />
           <span className="sr-only">Loading…</span>
         </div>
+      )}
+
+      {plan && !readOnly && !editing && (
+        <p className="mb-2 text-center text-[0.8125rem] leading-[18px] text-muted">
+          Shortcuts:{" "}
+          <kbd className="rounded bg-surface-2 px-1 font-mono text-foreground">E</kbd> edit ·{" "}
+          <kbd className="rounded bg-surface-2 px-1 font-mono text-foreground">A</kbd> approve ·{" "}
+          <kbd className="rounded bg-surface-2 px-1 font-mono text-foreground">R</kbd> request changes
+        </p>
       )}
 
       {plan && !readOnly && (

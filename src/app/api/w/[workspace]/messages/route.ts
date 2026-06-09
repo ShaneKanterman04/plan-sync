@@ -4,6 +4,7 @@ import { addMessage, getMessages } from "@/lib/db";
 import { broadcast } from "@/lib/events";
 import { fail, readWorkspace } from "@/lib/http";
 import { postMessageSchema } from "@/lib/schema";
+import { dispatchWebhooks } from "@/lib/webhooks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export async function POST(req: Request, { params }: Ctx) {
     const input = postMessageSchema.parse(await req.json());
     const message = addMessage({ workspace, ...input });
     broadcast(workspace);
+    void dispatchWebhooks(workspace, "message", { messageId: message.id });
     return NextResponse.json({ message });
   } catch (error) {
     return fail(error);

@@ -4,6 +4,7 @@ import { ensurePlan, getStatus, setStatus } from "@/lib/db";
 import { broadcast } from "@/lib/events";
 import { fail, readWorkspace } from "@/lib/http";
 import { patchStatusSchema } from "@/lib/schema";
+import { dispatchWebhooks } from "@/lib/webhooks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const input = patchStatusSchema.parse(await req.json());
     const plan = setStatus({ workspace, ...input });
     broadcast(workspace);
+    void dispatchWebhooks(workspace, "status");
     return NextResponse.json({ plan });
   } catch (error) {
     return fail(error);

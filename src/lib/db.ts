@@ -2,19 +2,25 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { assertTransition } from "@/lib/schema";
-import type {
-  Author,
-  DocumentType,
-  Message,
-  MessageKind,
-  Plan,
-  PluginRun,
-  PluginRunState,
-  PollSnapshot,
-  Revision,
-  Status,
-  WorkspaceFile,
-  WorkspaceSummary,
+import {
+  REACTION_EMOJIS,
+  type Author,
+  type DocumentType,
+  type Message,
+  type MessageKind,
+  type Plan,
+  type PluginRun,
+  type PluginRunState,
+  type PollSnapshot,
+  type Reaction,
+  type ReactionEmoji,
+  type ReactionSummary,
+  type Revision,
+  type Status,
+  type Webhook,
+  type WebhookEvent,
+  type WorkspaceFile,
+  type WorkspaceSummary,
 } from "@/lib/types";
 import {
   normalizeWorkspaceFiles,
@@ -84,6 +90,28 @@ CREATE TABLE IF NOT EXISTS plan_files (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (workspace, path)
 );
+CREATE TABLE IF NOT EXISTS reactions (
+  id TEXT PRIMARY KEY,
+  workspace TEXT NOT NULL REFERENCES plans(workspace) ON DELETE CASCADE,
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  emoji TEXT NOT NULL,
+  author TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(message_id, emoji, author)
+);
+CREATE INDEX IF NOT EXISTS idx_reactions_ws ON reactions(workspace);
+CREATE INDEX IF NOT EXISTS idx_reactions_msg ON reactions(message_id);
+CREATE TABLE IF NOT EXISTS webhooks (
+  id TEXT PRIMARY KEY,
+  workspace TEXT NOT NULL REFERENCES plans(workspace) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  secret TEXT NOT NULL DEFAULT '',
+  events TEXT NOT NULL DEFAULT '[]',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_webhooks_ws ON webhooks(workspace, active);
 CREATE INDEX IF NOT EXISTS idx_messages_ws ON messages(workspace, created_at);
 CREATE INDEX IF NOT EXISTS idx_revisions_ws ON revisions(workspace, version);
 CREATE INDEX IF NOT EXISTS idx_plugin_runs_ws ON plugin_runs(workspace, updated_at);
@@ -142,12 +170,22 @@ function backfillPlanFiles() {
   tx();
 }
 
+const MAX_WEBHOOKS_PER_WORKSPACE = 20;
+
 function id() {
   return crypto.randomUUID();
 }
 
+// Monotonic ISO-8601 clock: guarantees strictly increasing timestamps even when
+// two calls land in the same millisecond. Without this, rows created in rapid
+// succession share a created_at, which breaks `created_at > ?` since-filters
+// (e.g. getMessages would drop a message that ties the cursor timestamp).
+let lastNowMs = 0;
 function now() {
-  return new Date().toISOString();
+  let ms = Date.now();
+  if (ms <= lastNowMs) ms = lastNowMs + 1;
+  lastNowMs = ms;
+  return new Date(ms).toISOString();
 }
 
 /** Single-line clean: trim, collapse whitespace, cap length. */
@@ -297,6 +335,76 @@ function revisionRow(row: any): Revision {
     note: row.note,
     createdAt: row.created_at,
   };
+}
+
+function parseWebhookEvents(input: unknown): WebhookEvent[] {
+  if (typeof input !== "string" || !input.trim()) return [];
+  try {
+    const parsed = JSON.parse(input);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (value): value is WebhookEvent =>
+        value === "plan" || value === "status" || value === "message" || value === "proof",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function webhookRow(row: any): Webhook {
+  return {
+    id: row.id,
+    workspace: row.workspace,
+    url: row.url,
+    secret: row.secret,
+    events: parseWebhookEvents(row.events),
+    active: Number(row.active) === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Aggregate every reaction in a workspace into a per-message summary in a SINGLE
+ * query (no N+1). `viewer` flags whether the viewer owns each reaction emoji.
+ */
+function getReactionsByMessage(
+  workspace: string,
+  viewer?: Author,
+): Map<string, ReactionSummary[]> {
+  const rows = db
+    .prepare(
+      "SELECT message_id, emoji, author FROM reactions WHERE workspace = ?",
+    )
+    .all(workspace) as Array<{ message_id: string; emoji: string; author: Author }>;
+
+  // message_id -> emoji -> { count, mine }
+  const byMessage = new Map<string, Map<string, { count: number; mine: boolean }>>();
+  for (const row of rows) {
+    let perEmoji = byMessage.get(row.message_id);
+    if (!perEmoji) {
+      perEmoji = new Map();
+      byMessage.set(row.message_id, perEmoji);
+    }
+    const entry = perEmoji.get(row.emoji) ?? { count: 0, mine: false };
+    entry.count += 1;
+    if (viewer !== undefined && row.author === viewer) entry.mine = true;
+    perEmoji.set(row.emoji, entry);
+  }
+
+  const result = new Map<string, ReactionSummary[]>();
+  for (const [messageId, perEmoji] of byMessage) {
+    const summaries: ReactionSummary[] = [];
+    for (const emoji of REACTION_EMOJIS) {
+      const entry = perEmoji.get(emoji);
+      if (!entry) continue;
+      const summary: ReactionSummary = { emoji, count: entry.count };
+      if (viewer !== undefined) summary.mine = entry.mine;
+      summaries.push(summary);
+    }
+    result.set(messageId, summaries);
+  }
+  return result;
 }
 
 // --- workspaces ---
@@ -560,19 +668,26 @@ export function setStatus(input: {
 
 // --- messages ---
 
-export function getMessages(workspace: string, sinceIso?: string): Message[] {
+export function getMessages(
+  workspace: string,
+  sinceIso?: string,
+  viewer?: Author,
+): Message[] {
+  const reactions = getReactionsByMessage(workspace, viewer);
   if (sinceIso) {
     return db
       .prepare(
         "SELECT * FROM messages WHERE workspace = ? AND created_at > ? ORDER BY created_at, id",
       )
       .all(workspace, sinceIso)
-      .map(messageRow);
+      .map(messageRow)
+      .map((m) => ({ ...m, reactions: reactions.get(m.id) ?? [] }));
   }
   return db
     .prepare("SELECT * FROM messages WHERE workspace = ? ORDER BY created_at, id")
     .all(workspace)
-    .map(messageRow);
+    .map(messageRow)
+    .map((m) => ({ ...m, reactions: reactions.get(m.id) ?? [] }));
 }
 
 export function addMessage(input: {
@@ -594,6 +709,130 @@ export function addMessage(input: {
     "INSERT INTO messages (id, workspace, author, kind, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
   ).run(message.id, message.workspace, message.author, message.kind, message.body, message.createdAt);
   return message;
+}
+
+// --- reactions ---
+
+/**
+ * Toggle a single (message, emoji, author) reaction. Returns `"on"` with the
+ * created row when it was added, or `"off"` with `null` when removed. Throws a
+ * 400-style error if the message does not exist in the workspace.
+ */
+export function toggleReaction(input: {
+  workspace: string;
+  messageId: string;
+  emoji: ReactionEmoji;
+  author: Author;
+}): { toggled: "on" | "off"; reaction: Reaction | null } {
+  ensurePlan(input.workspace);
+  const exists = db
+    .prepare("SELECT 1 FROM messages WHERE id = ? AND workspace = ?")
+    .get(input.messageId, input.workspace);
+  if (!exists) {
+    throw new Error("message not found");
+  }
+  const tx = db.transaction(() => {
+    const current = db
+      .prepare(
+        "SELECT * FROM reactions WHERE message_id = ? AND emoji = ? AND author = ?",
+      )
+      .get(input.messageId, input.emoji, input.author);
+    if (current) {
+      db.prepare(
+        "DELETE FROM reactions WHERE message_id = ? AND emoji = ? AND author = ?",
+      ).run(input.messageId, input.emoji, input.author);
+      return { toggled: "off" as const, reaction: null };
+    }
+    const reaction: Reaction = {
+      id: id(),
+      workspace: input.workspace,
+      messageId: input.messageId,
+      emoji: input.emoji,
+      author: input.author,
+      createdAt: now(),
+    };
+    db.prepare(
+      "INSERT INTO reactions (id, workspace, message_id, emoji, author, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      reaction.id,
+      reaction.workspace,
+      reaction.messageId,
+      reaction.emoji,
+      reaction.author,
+      reaction.createdAt,
+    );
+    return { toggled: "on" as const, reaction };
+  });
+  return tx();
+}
+
+// --- webhooks ---
+
+/** Append-only webhook registration, capped at MAX_WEBHOOKS_PER_WORKSPACE. */
+export function createWebhook(input: {
+  workspace: string;
+  url: string;
+  events: WebhookEvent[];
+  secret?: string;
+  active?: boolean;
+}): Webhook {
+  ensurePlan(input.workspace);
+  const count = db
+    .prepare("SELECT COUNT(*) AS count FROM webhooks WHERE workspace = ?")
+    .get(input.workspace) as { count: number };
+  if (Number(count?.count ?? 0) >= MAX_WEBHOOKS_PER_WORKSPACE) {
+    throw new Error(
+      `webhook limit reached for workspace (max ${MAX_WEBHOOKS_PER_WORKSPACE})`,
+    );
+  }
+  const at = now();
+  const webhook: Webhook = {
+    id: id(),
+    workspace: input.workspace,
+    url: input.url,
+    secret: input.secret ?? "",
+    events: input.events,
+    active: input.active === false ? false : true,
+    createdAt: at,
+    updatedAt: at,
+  };
+  db.prepare(
+    `INSERT INTO webhooks (id, workspace, url, secret, events, active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    webhook.id,
+    webhook.workspace,
+    webhook.url,
+    webhook.secret,
+    JSON.stringify(webhook.events),
+    webhook.active ? 1 : 0,
+    webhook.createdAt,
+    webhook.updatedAt,
+  );
+  return webhook;
+}
+
+export function listWebhooks(workspace: string): Webhook[] {
+  return db
+    .prepare("SELECT * FROM webhooks WHERE workspace = ? ORDER BY created_at, id")
+    .all(workspace)
+    .map(webhookRow);
+}
+
+export function listActiveWebhooks(workspace: string): Webhook[] {
+  return db
+    .prepare(
+      "SELECT * FROM webhooks WHERE workspace = ? AND active = 1 ORDER BY created_at, id",
+    )
+    .all(workspace)
+    .map(webhookRow);
+}
+
+export function deleteWebhook(workspace: string, id: string): boolean {
+  const result = db
+    .prepare("DELETE FROM webhooks WHERE workspace = ? AND id = ?")
+    .run(workspace, id);
+  return result.changes > 0;
 }
 
 // --- plugin runs ---

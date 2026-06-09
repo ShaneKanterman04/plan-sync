@@ -8,7 +8,86 @@ import { api, timeLabel } from "@/components/api";
 import { DocumentTypeBadge } from "@/components/DocumentTypeBadge";
 import { LoadError } from "@/components/LoadError";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useLastSeen } from "@/components/useLastSeen";
 import { useLiveReload } from "@/components/useLiveReload";
+
+/**
+ * A single workspace row. Extracted into its own component because it calls
+ * the `useLastSeen` hook — hooks can't run inside `workspaces.map(...)`. The
+ * unread badge is purely client-side (localStorage) and never calls markSeen
+ * here; seen state is only advanced when the workspace itself is opened.
+ */
+function WorkspaceCard({ w }: { w: WorkspaceSummary }) {
+  const { unreadCount } = useLastSeen(w.workspace);
+  const unread = unreadCount({
+    lastMessageAt: w.lastMessageAt,
+    messageCount: w.messageCount,
+  });
+
+  return (
+    <li>
+      <Link
+        href={`/w/${encodeURIComponent(w.workspace)}`}
+        className="row-fade-in block rounded-card border border-border bg-surface p-4 shadow-card transition active:scale-[0.99] active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <span className="min-w-0 truncate text-base font-semibold text-foreground">
+            {w.workspace}
+          </span>
+          <div className="flex shrink-0 items-center gap-1.5 pointer-events-none">
+            {unread > 0 && (
+              <span
+                aria-label={`${unread} unread message${unread === 1 ? "" : "s"}`}
+                className="inline-flex min-w-5 items-center justify-center whitespace-nowrap rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground"
+              >
+                {unread}
+              </span>
+            )}
+            <DocumentTypeBadge type={w.documentType} />
+            <StatusBadge status={w.status} />
+          </div>
+        </div>
+
+        {w.title && (
+          <div className="mt-0.5 truncate text-sm text-muted">{w.title}</div>
+        )}
+
+        {w.primaryFile && (
+          <div className="mt-1 truncate text-[0.8125rem] text-muted">
+            {w.primaryFile}
+          </div>
+        )}
+
+        <div className="mt-1.5 flex items-center justify-between gap-2 text-[0.8125rem] text-muted">
+          <span className="min-w-0 truncate">
+            v{w.version} · {w.updatedBy} · {timeLabel(w.updatedAt)}
+          </span>
+          {(w.fileCount > 0 || w.messageCount > 0) && (
+            <span className="shrink-0">
+              {w.fileCount > 0 &&
+                `${w.fileCount} file${w.fileCount === 1 ? "" : "s"}`}
+              {w.fileCount > 0 && w.messageCount > 0 && " · "}
+              {w.messageCount > 0 && `${w.messageCount} msg`}
+            </span>
+          )}
+        </div>
+
+        {w.staleReasons.length > 0 && (
+          <div className="mt-1.5 text-[0.8125rem] font-semibold text-warning">
+            Stale review metadata
+          </div>
+        )}
+
+        {w.lastMessagePreview && (
+          <div className="mt-1.5 truncate text-[0.8125rem] italic text-muted">
+            {w.lastMessagePreview}
+          </div>
+        )}
+      </Link>
+    </li>
+  );
+}
 
 export default function Home() {
   const router = useRouter();
@@ -44,8 +123,13 @@ export default function Home() {
       className="mx-auto min-h-[100dvh] max-w-2xl overflow-x-clip px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-10"
     >
       <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-border-strong bg-surface/90 px-[max(1rem,env(safe-area-inset-left))] py-3 shadow-raised backdrop-blur">
-        <h1 className="text-[1.375rem] font-extrabold leading-7 tracking-tight">plan-sync</h1>
-        <p className="text-sm text-muted">Shared plans for agents &amp; humans</p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="text-[1.375rem] font-extrabold leading-7 tracking-tight">plan-sync</h1>
+            <p className="text-sm text-muted">Shared plans for agents &amp; humans</p>
+          </div>
+          <ThemeToggle />
+        </div>
       </header>
 
       <form onSubmit={open} className="mb-4 flex gap-2">
@@ -95,58 +179,7 @@ export default function Home() {
         {workspaces && workspaces.length > 0 && (
           <ul className="space-y-2">
             {workspaces.map((w) => (
-              <li key={w.workspace}>
-                <Link
-                  href={`/w/${encodeURIComponent(w.workspace)}`}
-                  className="row-fade-in block rounded-card border border-border bg-surface p-4 shadow-card transition active:scale-[0.99] active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="min-w-0 truncate text-base font-semibold text-foreground">
-                      {w.workspace}
-                    </span>
-                    <div className="flex shrink-0 items-center gap-1.5 pointer-events-none">
-                      <DocumentTypeBadge type={w.documentType} />
-                      <StatusBadge status={w.status} />
-                    </div>
-                  </div>
-
-                  {w.title && (
-                    <div className="mt-0.5 truncate text-sm text-muted">{w.title}</div>
-                  )}
-
-                  {w.primaryFile && (
-                    <div className="mt-1 truncate text-[0.8125rem] text-muted">
-                      {w.primaryFile}
-                    </div>
-                  )}
-
-                  <div className="mt-1.5 flex items-center justify-between gap-2 text-[0.8125rem] text-muted">
-                    <span className="min-w-0 truncate">
-                      v{w.version} · {w.updatedBy} · {timeLabel(w.updatedAt)}
-                    </span>
-                    {(w.fileCount > 0 || w.messageCount > 0) && (
-                      <span className="shrink-0">
-                        {w.fileCount > 0 &&
-                          `${w.fileCount} file${w.fileCount === 1 ? "" : "s"}`}
-                        {w.fileCount > 0 && w.messageCount > 0 && " · "}
-                        {w.messageCount > 0 && `${w.messageCount} msg`}
-                      </span>
-                    )}
-                  </div>
-
-                  {w.staleReasons.length > 0 && (
-                    <div className="mt-1.5 text-[0.8125rem] font-semibold text-warning">
-                      Stale review metadata
-                    </div>
-                  )}
-
-                  {w.lastMessagePreview && (
-                    <div className="mt-1.5 truncate text-[0.8125rem] italic text-muted">
-                      {w.lastMessagePreview}
-                    </div>
-                  )}
-                </Link>
-              </li>
+              <WorkspaceCard key={w.workspace} w={w} />
             ))}
           </ul>
         )}

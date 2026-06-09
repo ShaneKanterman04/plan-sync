@@ -2,17 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Message, MessageKind } from "@/lib/types";
-import { MESSAGE_KINDS } from "@/lib/types";
+import { MESSAGE_KINDS, REACTION_EMOJIS } from "@/lib/types";
 import { timeLabel } from "@/components/api";
 
 export function MessageThread({
   messages,
   onSend,
   readOnly = false,
+  onReact,
+  firstUnreadAt = null,
 }: {
   messages: Message[];
   onSend: (body: string) => Promise<void>;
   readOnly?: boolean;
+  onReact?: (messageId: string, emoji: string) => Promise<void>;
+  firstUnreadAt?: string | null;
 }) {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -20,6 +24,20 @@ export function MessageThread({
   const lastMessageRef = useRef<HTMLDivElement>(null);
   const visibleMessages =
     kindFilter === "all" ? messages : messages.filter((message) => message.kind === kindFilter);
+
+  // Reaction chips + the add-reaction control only appear when a real handler is
+  // wired and we are not in read-only review mode. Without onReact there is
+  // nowhere for a toggle to go, so we hide the whole affordance.
+  const canReact = !readOnly && typeof onReact === "function";
+
+  // The unread divider sits before the first visible message that arrived after
+  // the last time this viewer saw the thread. firstUnreadAt is the persisted
+  // "last seen" timestamp (null === never seen / nothing to mark), supplied by
+  // the page from useLastSeen.firstUnreadAfter.
+  const firstUnreadIndex =
+    firstUnreadAt == null
+      ? -1
+      : visibleMessages.findIndex((message) => message.createdAt > firstUnreadAt);
 
   // Scroll the newest message into view whenever a message is added — both when
   // the human sends one and when SSE/polling delivers an agent reply. Keyed on
@@ -107,40 +125,97 @@ export function MessageThread({
         {visibleMessages.map((m, i) => {
           const isAgent = m.author === "agent";
           const isLast = i === visibleMessages.length - 1;
+          const reactions = m.reactions ?? [];
+          const reactedEmojis = new Set(reactions.map((r) => r.emoji));
+          const showDivider = i === firstUnreadIndex;
           return (
-            <div
-              key={m.id}
-              ref={isLast ? lastMessageRef : undefined}
-              className={`space-y-2 rounded-card px-3 py-2 text-base text-foreground shadow-card ${
-                isLast ? "msg-enter " : ""
-              }${
-                isAgent
-                  ? "border border-accent-subtle border-l-2 border-l-accent bg-accent-subtle"
-                  : "border border-border bg-surface"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
-                  <span
-                    aria-hidden="true"
-                    className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                      isAgent
-                        ? "bg-accent-subtle text-accent-subtle-foreground"
-                        : "bg-surface-2 text-muted"
-                    }`}
-                  >
-                    {isAgent ? "A" : "Y"}
-                  </span>
-                  <span className="truncate">{isAgent ? "Agent" : "You"}</span>
-                  {m.kind !== "note" && (
-                    <span className="font-medium text-faint">
-                      · {m.kind.replace(/_/g, " ")}
+            <div key={m.id} className="space-y-2">
+              {showDivider && (
+                <div
+                  role="separator"
+                  aria-label="New messages"
+                  className="flex items-center gap-2 py-1 text-xs font-semibold uppercase tracking-wide text-accent"
+                >
+                  <span aria-hidden="true" className="h-px flex-1 bg-accent-subtle" />
+                  <span>New</span>
+                  <span aria-hidden="true" className="h-px flex-1 bg-accent-subtle" />
+                </div>
+              )}
+              <div
+                ref={isLast ? lastMessageRef : undefined}
+                className={`space-y-2 rounded-card px-3 py-2 text-base text-foreground shadow-card ${
+                  isLast ? "msg-enter " : ""
+                }${
+                  isAgent
+                    ? "border border-accent-subtle border-l-2 border-l-accent bg-accent-subtle"
+                    : "border border-border bg-surface"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
+                    <span
+                      aria-hidden="true"
+                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                        isAgent
+                          ? "bg-accent-subtle text-accent-subtle-foreground"
+                          : "bg-surface-2 text-muted"
+                      }`}
+                    >
+                      {isAgent ? "A" : "Y"}
                     </span>
-                  )}
-                </span>
-                <span className="shrink-0 text-xs text-muted">{timeLabel(m.createdAt)}</span>
+                    <span className="truncate">{isAgent ? "Agent" : "You"}</span>
+                    {m.kind !== "note" && (
+                      <span className="font-medium text-faint">
+                        · {m.kind.replace(/_/g, " ")}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted">{timeLabel(m.createdAt)}</span>
+                </div>
+                <div className="whitespace-pre-wrap break-words text-foreground">{m.body}</div>
+                {canReact && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    {reactions.map((r) => (
+                      <button
+                        key={r.emoji}
+                        type="button"
+                        onClick={() => void onReact?.(m.id, r.emoji)}
+                        aria-pressed={r.mine ? true : false}
+                        aria-label={`${r.count} ${r.emoji} reaction${
+                          r.count === 1 ? "" : "s"
+                        }${r.mine ? ", including yours" : ""}`}
+                        className={`inline-flex min-h-8 items-center gap-1 rounded-full border px-2 py-0.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface ${
+                          r.mine
+                            ? "border-accent bg-accent-subtle text-accent-subtle-foreground"
+                            : "border-border bg-surface text-foreground hover:bg-surface-2"
+                        }`}
+                      >
+                        <span aria-hidden="true">{r.emoji}</span>
+                        <span aria-hidden="true">{r.count}</span>
+                      </button>
+                    ))}
+                    <span
+                      role="group"
+                      aria-label="Add reaction"
+                      className="inline-flex items-center gap-0.5"
+                    >
+                      {REACTION_EMOJIS.filter((emoji) => !reactedEmojis.has(emoji)).map(
+                        (emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => void onReact?.(m.id, emoji)}
+                            aria-label={`React with ${emoji}`}
+                            className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full border border-transparent px-1 text-sm text-muted transition hover:border-border hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                          >
+                            <span aria-hidden="true">{emoji}</span>
+                          </button>
+                        ),
+                      )}
+                    </span>
+                  </div>
+                )}
               </div>
-              <div className="whitespace-pre-wrap break-words text-foreground">{m.body}</div>
             </div>
           );
         })}
