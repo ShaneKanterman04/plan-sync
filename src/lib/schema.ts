@@ -75,6 +75,20 @@ export const putPlanSchema = z.object({
   referencedFiles: z.array(z.string().trim().min(1).max(500)).max(200).optional(),
 });
 
+export const putDocumentSchema = z.object({
+  author: authorSchema,
+  docId: z.string().trim().min(1).max(120).optional(),
+  slug: z.string().trim().max(80).optional(),
+  title: z.string().trim().min(1).max(120),
+  bodyMd: z.string().max(200_000),
+  documentType: documentTypeSchema.optional(),
+});
+
+export const patchDocumentSchema = z.object({
+  author: authorSchema.optional(),
+  archived: z.boolean(),
+});
+
 export const patchStatusSchema = z.object({
   author: authorSchema,
   status: statusSchema,

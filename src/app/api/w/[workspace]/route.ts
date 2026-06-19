@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
-import { ensurePlan, getMessages, putPlanBody } from "@/lib/db";
+import { ensurePlan, getMessages, listWorkspaceDocuments, putPlanBody } from "@/lib/db";
 import { broadcast } from "@/lib/events";
 import { fail, readWorkspace } from "@/lib/http";
 import { putPlanSchema } from "@/lib/schema";
@@ -16,7 +16,11 @@ export async function GET(_req: Request, { params }: Ctx) {
   try {
     const workspace = await readWorkspace(params);
     const plan = ensurePlan(workspace);
-    return NextResponse.json({ plan, messages: getMessages(workspace, undefined, "human") });
+    return NextResponse.json({
+      plan,
+      messages: getMessages(workspace, undefined, "human"),
+      documents: listWorkspaceDocuments(workspace),
+    });
   } catch (error) {
     return fail(error);
   }
