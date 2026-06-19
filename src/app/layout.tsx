@@ -1,5 +1,15 @@
 import type { Metadata, Viewport } from "next";
+import { Exo_2, Geist_Mono } from "next/font/google";
 import "./globals.css";
+
+// Hostlet brand type, self-hosted by next/font (no layout shift, no runtime
+// Google request). Exposed as CSS variables that globals.css consumes.
+const exo2 = Exo_2({ subsets: ["latin"], variable: "--font-exo2", display: "swap" });
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "plan-sync",
@@ -42,16 +52,10 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <head>
-        {/* Hostlet brand type: Exo 2 (sans) + Geist Mono. */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&family=Geist+Mono:wght@400;500;600&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html
+      lang="en"
+      className={`${exo2.variable} ${geistMono.variable} h-full antialiased`}
+    >
       <body className="min-h-[100dvh] bg-background text-foreground">
         <script dangerouslySetInnerHTML={{ __html: NO_FOUC_THEME_SCRIPT }} />
         <a

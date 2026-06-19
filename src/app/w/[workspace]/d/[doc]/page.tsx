@@ -2,7 +2,8 @@
 
 import { useCallback, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import type { Document, Message } from "@/lib/types";
 import { api, timeLabel } from "@/components/api";
 import { DocumentTypeBadge } from "@/components/DocumentTypeBadge";
@@ -14,6 +15,7 @@ import { useLastSeen } from "@/components/useLastSeen";
 import { useLiveReload } from "@/components/useLiveReload";
 
 export default function DocPage() {
+  const router = useRouter();
   const params = useParams<{ workspace: string; doc: string }>();
   const workspace = Array.isArray(params.workspace)
     ? params.workspace[0]
@@ -29,6 +31,7 @@ export default function DocPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
 
   // Key the last-seen tracker under "workspace/d/doc" to avoid colliding with
   // the workspace-level unread cursor (which uses just "workspace").
@@ -85,6 +88,42 @@ export default function DocPage() {
     await load();
   }
 
+  async function handleArchive() {
+    if (!document) return;
+    setArchiveBusy(true);
+    setError("");
+    try {
+      const data = await api<{ document: Document }>(docPath, {
+        method: "PATCH",
+        body: JSON.stringify({ author: "human", archived: !document.archived }),
+      });
+      setDocument(data.document);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to archive.");
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (
+      !window.confirm(
+        "Delete this document and its thread? This cannot be undone.",
+      )
+    )
+      return;
+    setError("");
+    try {
+      await api(docPath, { method: "DELETE" });
+      router.push(workspacePath);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete.");
+    }
+  }
+
+  const iconBtn =
+    "rounded-control p-1.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-40";
+
   return (
     <main
       id="main"
@@ -111,8 +150,42 @@ export default function DocPage() {
           )}
         </div>
         {document && (
-          <div className="mt-0.5 flex items-center gap-1.5">
-            <DocumentTypeBadge type={document.documentType} />
+          <div className="mt-0.5 flex items-center justify-between gap-1.5">
+            {/* Left: type badge + archived indicator */}
+            <div className="flex items-center gap-1.5">
+              <DocumentTypeBadge type={document.documentType} />
+              {document.archived && (
+                <span className="inline-flex items-center whitespace-nowrap rounded-full bg-warning-subtle px-2.5 py-1 text-xs font-semibold text-warning-foreground">
+                  Archived
+                </span>
+              )}
+            </div>
+            {/* Right: archive + delete icon actions */}
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={handleArchive}
+                disabled={archiveBusy}
+                title={document.archived ? "Unarchive" : "Archive"}
+                aria-label={
+                  document.archived ? "Unarchive document" : "Archive document"
+                }
+                className={`${iconBtn} text-muted hover:bg-surface-2 active:bg-surface-2`}
+              >
+                {document.archived ? (
+                  <ArchiveRestore className="size-4" aria-hidden />
+                ) : (
+                  <Archive className="size-4" aria-hidden />
+                )}
+              </button>
+              <button
+                onClick={handleDelete}
+                title="Delete document"
+                aria-label="Delete document"
+                className={`${iconBtn} text-danger-foreground hover:bg-danger-subtle active:bg-danger-subtle`}
+              >
+                <Trash2 className="size-4" aria-hidden />
+              </button>
+            </div>
           </div>
         )}
       </header>

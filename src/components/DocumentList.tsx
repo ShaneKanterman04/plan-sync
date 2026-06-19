@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { FileText, History, ScrollText } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -12,10 +15,19 @@ const ICONS: Record<DocumentType, LucideIcon> = {
   retrospective: History,
 };
 
+const TYPE_LABELS: Record<DocumentType, string> = {
+  plan: "Plan",
+  summary: "Summary",
+  retrospective: "Retrospective",
+};
+
 /**
  * Compact, phone-first document switcher. Renders a tappable list of all
  * documents in the workspace (primary plan first, then extra docs). The active
  * document is highlighted with the emerald accent and a left rule.
+ *
+ * When multiple document types are present a filter-chip row lets the user
+ * narrow the list by type (client-side, no refetch).
  *
  * Routing:
  *   - primary plan row → /w/[workspace]
@@ -31,13 +43,54 @@ export function DocumentList({
   /** docId of the currently-viewed document ("primary" on the plan page). */
   currentDocId: string;
 }) {
+  const presentTypes = [
+    ...new Set(documents.map((d) => d.documentType)),
+  ] as DocumentType[];
+
+  const [filter, setFilter] = useState<DocumentType | "all">("all");
+
   if (documents.length === 0) return null;
+
+  // Hide the filter row when only one type is present — it adds no value.
+  const showFilter = presentTypes.length > 1;
+  const filtered =
+    filter === "all" ? documents : documents.filter((d) => d.documentType === filter);
+
+  const chips: Array<DocumentType | "all"> = ["all", ...presentTypes];
 
   return (
     <nav aria-label="Documents" className="mb-4">
       <h2 className="sr-only">Documents</h2>
+
+      {showFilter && (
+        <div
+          role="group"
+          aria-label="Filter by document type"
+          className="mb-2 flex flex-wrap gap-1.5"
+        >
+          {chips.map((t) => {
+            const isActive = filter === t;
+            const label = t === "all" ? "All" : TYPE_LABELS[t];
+            return (
+              <button
+                key={t}
+                aria-pressed={isActive}
+                onClick={() => setFilter(t)}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+                  isActive
+                    ? "bg-accent-subtle text-accent"
+                    : "border border-border text-muted active:bg-surface-2"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <ul className="overflow-hidden divide-y divide-border rounded-card border border-border bg-surface shadow-card">
-        {documents.map((doc) => {
+        {filtered.map((doc) => {
           const isCurrent = doc.docId === currentDocId;
           const href = doc.isPrimary
             ? `/w/${encodeURIComponent(workspace)}`

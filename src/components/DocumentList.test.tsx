@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { DocumentSummary } from "@/lib/types";
 import { DocumentList } from "@/components/DocumentList";
 
@@ -213,5 +214,106 @@ describe("DocumentList", () => {
 
     const link = screen.getByRole("link");
     expect(link).toHaveAttribute("href", "/w/my%20workspace/d/my%20doc");
+  });
+
+  // --- Filter chip tests -------------------------------------------------------
+
+  test("does not render filter chips when only one document type is present", () => {
+    // Only primaryDoc (plan type) — no variety.
+    render(
+      <DocumentList workspace="demo" documents={[primaryDoc]} currentDocId="primary" />,
+    );
+
+    expect(screen.queryByRole("group", { name: /filter by document type/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "All" })).toBeNull();
+  });
+
+  test("renders filter chips (All + one per type) when multiple types are present", () => {
+    render(
+      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+    );
+
+    // documents has plan, summary, retrospective.
+    expect(screen.getByRole("button", { name: "All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Summary" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retrospective" })).toBeInTheDocument();
+  });
+
+  test("the 'All' chip is aria-pressed=true initially", () => {
+    render(
+      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+    );
+
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Plan" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  test("clicking a type chip filters the list to that type only", async () => {
+    const user = userEvent.setup();
+    render(
+      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Summary" }));
+
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveTextContent("Project summary");
+  });
+
+  test("clicking a type chip marks it aria-pressed=true and deactivates 'All'", async () => {
+    const user = userEvent.setup();
+    render(
+      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Plan" }));
+
+    expect(screen.getByRole("button", { name: "Plan" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  test("clicking 'All' chip after a type filter restores all rows", async () => {
+    const user = userEvent.setup();
+    render(
+      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Retrospective" }));
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+  });
+
+  test("filter chips are hidden when all documents share the same type", () => {
+    const anotherPlan: DocumentSummary = doc({
+      docId: "plan-2",
+      slug: "plan-2",
+      title: "Second plan",
+      documentType: "plan",
+    });
+    render(
+      <DocumentList
+        workspace="demo"
+        documents={[primaryDoc, anotherPlan]}
+        currentDocId="primary"
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "All" })).toBeNull();
   });
 });
