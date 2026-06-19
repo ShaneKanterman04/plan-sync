@@ -106,6 +106,44 @@ export type Plan = {
   updatedBy: Author;
 };
 
+/**
+ * An additional shared document in a workspace (beyond the primary plan). Stored
+ * in the `documents` table; published by the agent for the human to browse and
+ * discuss. Non-plan docs (summary/retrospective/reference) skip the approval
+ * lifecycle — they are publish-and-read. `isPrimary` is false for these; the
+ * workspace's primary plan is surfaced as a Document with `isPrimary: true`.
+ */
+export type Document = {
+  workspace: string;
+  docId: string;
+  slug: string;
+  title: string;
+  documentType: DocumentType;
+  bodyMd: string;
+  version: number;
+  isPrimary: boolean;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: Author;
+};
+
+/** Lightweight document entry for the workspace's document list. */
+export type DocumentSummary = {
+  docId: string;
+  slug: string;
+  title: string;
+  documentType: DocumentType;
+  version: number;
+  isPrimary: boolean;
+  archived: boolean;
+  status: Status | null;
+  updatedAt: string;
+  updatedBy: Author;
+  messageCount: number;
+  lastMessageAt: string | null;
+};
+
 export type Message = {
   id: string;
   workspace: string;

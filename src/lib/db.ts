@@ -5,6 +5,8 @@ import { assertTransition } from "@/lib/schema";
 import {
   REACTION_EMOJIS,
   type Author,
+  type Document,
+  type DocumentSummary,
   type DocumentType,
   type Message,
   type MessageKind,
@@ -116,6 +118,32 @@ CREATE INDEX IF NOT EXISTS idx_messages_ws ON messages(workspace, created_at);
 CREATE INDEX IF NOT EXISTS idx_revisions_ws ON revisions(workspace, version);
 CREATE INDEX IF NOT EXISTS idx_plugin_runs_ws ON plugin_runs(workspace, updated_at);
 CREATE INDEX IF NOT EXISTS idx_plan_files_ws ON plan_files(workspace, role, path);
+CREATE TABLE IF NOT EXISTS documents (
+  workspace TEXT NOT NULL,
+  doc_id TEXT NOT NULL,
+  slug TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  body_md TEXT NOT NULL DEFAULT '',
+  document_type TEXT NOT NULL DEFAULT 'summary',
+  version INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT 'agent',
+  PRIMARY KEY (workspace, doc_id)
+);
+CREATE INDEX IF NOT EXISTS idx_documents_ws ON documents(workspace, archived, updated_at);
+CREATE TABLE IF NOT EXISTS document_messages (
+  id TEXT PRIMARY KEY,
+  workspace TEXT NOT NULL,
+  doc_id TEXT NOT NULL,
+  author TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'note',
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (workspace, doc_id) REFERENCES documents(workspace, doc_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_document_messages ON document_messages(workspace, doc_id, created_at);
 `);
 
 function existingColumns(table: string) {
@@ -997,6 +1025,218 @@ export function getRevisions(workspace: string, limit = 50): Revision[] {
     .prepare("SELECT * FROM revisions WHERE workspace = ? ORDER BY version DESC LIMIT ?")
     .all(workspace, capped)
     .map(revisionRow);
+}
+
+// --- documents (additional shared docs beyond the primary plan) ---
+//
+// The workspace's primary plan still lives in `plans` (approve-flow intact); this
+// layer adds extra agent-published docs the human browses + discusses. The two
+// are merged into one document list by listWorkspaceDocuments().
+
+/** Reserved doc id for the workspace's primary plan in the unified list. */
+export const PRIMARY_DOC_ID = "primary";
+
+function slugify(input: unknown): string {
+  const base = String(input ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return base || "doc";
+}
+
+function documentRow(row: any): Document {
+  return {
+    workspace: row.workspace,
+    docId: row.doc_id,
+    slug: row.slug,
+    title: row.title,
+    documentType: row.document_type,
+    bodyMd: row.body_md,
+    version: Number(row.version),
+    isPrimary: false,
+    archived: Number(row.archived) === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by,
+  };
+}
+
+export function getDocument(workspace: string, docId: string): Document | null {
+  const row = db
+    .prepare("SELECT * FROM documents WHERE workspace = ? AND doc_id = ?")
+    .get(workspace, docId);
+  return row ? documentRow(row) : null;
+}
+
+export function getDocumentBySlug(workspace: string, slug: string): Document | null {
+  const row = db
+    .prepare("SELECT * FROM documents WHERE workspace = ? AND slug = ? ORDER BY updated_at DESC LIMIT 1")
+    .get(workspace, slugify(slug));
+  return row ? documentRow(row) : null;
+}
+
+export function listExtraDocuments(workspace: string, includeArchived = false): Document[] {
+  const sql = includeArchived
+    ? "SELECT * FROM documents WHERE workspace = ? ORDER BY updated_at DESC, doc_id"
+    : "SELECT * FROM documents WHERE workspace = ? AND archived = 0 ORDER BY updated_at DESC, doc_id";
+  return db.prepare(sql).all(workspace).map(documentRow);
+}
+
+/**
+ * Create or update an additional document. Identified by explicit `docId`, else
+ * by a slug derived from `slug`/`title` (so re-publishing the same slug updates
+ * in place). Bumps version on each write. Non-plan docs skip the approve flow.
+ */
+export function putDocument(input: {
+  workspace: string;
+  docId?: string;
+  slug?: string;
+  title: string;
+  bodyMd: string;
+  documentType?: DocumentType;
+  author: Author;
+}): Document {
+  const slug = slugify(input.slug || input.title);
+  const existing = input.docId
+    ? getDocument(input.workspace, input.docId)
+    : getDocumentBySlug(input.workspace, slug);
+  const docId = existing?.docId ?? input.docId ?? id();
+  const at = now();
+  const nextVersion = (existing?.version ?? 0) + 1;
+  const title = cleanLine(input.title, 120) || existing?.title || slug;
+  const body = String(input.bodyMd ?? "").slice(0, 200_000);
+  const documentType = input.documentType ?? existing?.documentType ?? "summary";
+  const createdAt = existing?.createdAt ?? at;
+  db.prepare(
+    `INSERT INTO documents (
+       workspace, doc_id, slug, title, body_md, document_type, version,
+       archived, created_at, updated_at, updated_by
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+     ON CONFLICT(workspace, doc_id) DO UPDATE SET
+       slug = excluded.slug,
+       title = excluded.title,
+       body_md = excluded.body_md,
+       document_type = excluded.document_type,
+       version = excluded.version,
+       updated_at = excluded.updated_at,
+       updated_by = excluded.updated_by`,
+  ).run(input.workspace, docId, slug, title, body, documentType, nextVersion, createdAt, at, input.author);
+  return getDocument(input.workspace, docId)!;
+}
+
+export function archiveDocument(
+  workspace: string,
+  docId: string,
+  archived: boolean,
+): Document | null {
+  const result = db
+    .prepare("UPDATE documents SET archived = ?, updated_at = ? WHERE workspace = ? AND doc_id = ?")
+    .run(archived ? 1 : 0, now(), workspace, docId);
+  return result.changes > 0 ? getDocument(workspace, docId) : null;
+}
+
+export function deleteDocument(workspace: string, docId: string): boolean {
+  const result = db
+    .prepare("DELETE FROM documents WHERE workspace = ? AND doc_id = ?")
+    .run(workspace, docId);
+  return result.changes > 0;
+}
+
+export function getDocumentMessages(workspace: string, docId: string): Message[] {
+  return (
+    db
+      .prepare(
+        "SELECT * FROM document_messages WHERE workspace = ? AND doc_id = ? ORDER BY created_at, id",
+      )
+      .all(workspace, docId) as any[]
+  ).map((row) => ({
+    id: row.id,
+    workspace: row.workspace,
+    author: row.author,
+    kind: row.kind,
+    body: row.body,
+    createdAt: row.created_at,
+  }));
+}
+
+export function addDocumentMessage(input: {
+  workspace: string;
+  docId: string;
+  author: Author;
+  kind?: MessageKind;
+  body: string;
+}): Message {
+  if (!getDocument(input.workspace, input.docId)) {
+    throw new Error("document not found");
+  }
+  const message: Message = {
+    id: id(),
+    workspace: input.workspace,
+    author: input.author,
+    kind: input.kind ?? "note",
+    body: cleanBody(input.body),
+    createdAt: now(),
+  };
+  db.prepare(
+    "INSERT INTO document_messages (id, workspace, doc_id, author, kind, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(message.id, message.workspace, input.docId, message.author, message.kind, message.body, message.createdAt);
+  return message;
+}
+
+/**
+ * Unified document list for a workspace: the primary plan (from `plans`, if any)
+ * pinned first as a Document with isPrimary=true, followed by the extra documents
+ * newest-first. This is what the phone's document browser renders.
+ */
+export function listWorkspaceDocuments(
+  workspace: string,
+  includeArchived = false,
+): DocumentSummary[] {
+  const out: DocumentSummary[] = [];
+  const planStats = db.prepare(
+    "SELECT COUNT(*) AS count, MAX(created_at) AS last FROM messages WHERE workspace = ?",
+  );
+  const docStats = db.prepare(
+    "SELECT COUNT(*) AS count, MAX(created_at) AS last FROM document_messages WHERE workspace = ? AND doc_id = ?",
+  );
+  const plan = getPlan(workspace);
+  if (plan) {
+    const s = planStats.get(workspace) as any;
+    out.push({
+      docId: PRIMARY_DOC_ID,
+      slug: "plan",
+      title: plan.title || "Plan",
+      documentType: plan.documentType,
+      version: plan.version,
+      isPrimary: true,
+      archived: false,
+      status: plan.status,
+      updatedAt: plan.updatedAt,
+      updatedBy: plan.updatedBy,
+      messageCount: Number(s?.count ?? 0),
+      lastMessageAt: s?.last ?? null,
+    });
+  }
+  for (const doc of listExtraDocuments(workspace, includeArchived)) {
+    const s = docStats.get(workspace, doc.docId) as any;
+    out.push({
+      docId: doc.docId,
+      slug: doc.slug,
+      title: doc.title,
+      documentType: doc.documentType,
+      version: doc.version,
+      isPrimary: false,
+      archived: doc.archived,
+      status: null,
+      updatedAt: doc.updatedAt,
+      updatedBy: doc.updatedBy,
+      messageCount: Number(s?.count ?? 0),
+      lastMessageAt: s?.last ?? null,
+    });
+  }
+  return out;
 }
 
 // --- lightweight poll snapshot for agents ---
