@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Hostlet brand type (Exo 2 + Geist Mono) is loaded via a <link> in layout.tsx
+   <head> rather than a CSS @import, so it doesn't block the CSS bundle. */
 
 /* ============================================================================
    GRAPHITE DESIGN SYSTEM — ONE TOKEN PLANE / TWO THEMES
@@ -30,12 +32,12 @@
   --color-faint: #5f6b7a;
 
   /* Primary / accent (ONE indigo — interactivity only, never a status) */
-  --color-primary: #4f46e5;
+  --color-primary: #059669;
   --color-primary-foreground: #ffffff;
-  --color-accent: #4f46e5;
-  --color-accent-hover: #4338ca;
-  --color-accent-subtle: #eef0fe;
-  --color-accent-subtle-foreground: #3730a3;
+  --color-accent: #059669;
+  --color-accent-hover: #047857;
+  --color-accent-subtle: #ecfdf5;
+  --color-accent-subtle-foreground: #065f46;
 
   /* Success (Approve) */
   --color-success: #067a5b;
@@ -79,13 +81,13 @@
   --color-doctype-fg: #5b6573;
 
   /* Focus ring (= accent) */
-  --color-ring: #4f46e5;
+  --color-ring: #059669;
 
   /* Modal / sheet scrim */
   --color-overlay: rgba(13, 17, 23, 0.45);
 
   /* Markdown tokens */
-  --md-link: #3056d6;
+  --md-link: #047857;
   --md-code-bg: #f1f3f6;
   --md-code-fg: #0d1117;
   --md-pre-bg: #0d1117;
@@ -116,12 +118,12 @@
     --color-muted: #9aa4b2;
     --color-faint: #7e8896;
 
-    --color-primary: #7c83ff;
+    --color-primary: #10b981;
     --color-primary-foreground: #0b0e14;
-    --color-accent: #7c83ff;
-    --color-accent-hover: #9298ff;
-    --color-accent-subtle: #1c1f3a;
-    --color-accent-subtle-foreground: #b9bdff;
+    --color-accent: #10b981;
+    --color-accent-hover: #34d399;
+    --color-accent-subtle: #06281d;
+    --color-accent-subtle-foreground: #6ee7b7;
 
     --color-success: #2ea37c;
     --color-success-foreground: #0b0e14;
@@ -157,11 +159,11 @@
 
     --color-doctype-fg: #9aa4b2;
 
-    --color-ring: #7c83ff;
+    --color-ring: #10b981;
 
     --color-overlay: rgba(0, 0, 0, 0.62);
 
-    --md-link: #8fa6ff;
+    --md-link: #34d399;
     --md-code-bg: #1b2029;
     --md-code-fg: #e6e9ef;
     --md-pre-bg: #080a0f;
@@ -196,12 +198,12 @@
   --color-muted: #9aa4b2;
   --color-faint: #7e8896;
 
-  --color-primary: #7c83ff;
+  --color-primary: #10b981;
   --color-primary-foreground: #0b0e14;
-  --color-accent: #7c83ff;
-  --color-accent-hover: #9298ff;
-  --color-accent-subtle: #1c1f3a;
-  --color-accent-subtle-foreground: #b9bdff;
+  --color-accent: #10b981;
+  --color-accent-hover: #34d399;
+  --color-accent-subtle: #06281d;
+  --color-accent-subtle-foreground: #6ee7b7;
 
   --color-success: #2ea37c;
   --color-success-foreground: #0b0e14;
@@ -237,11 +239,11 @@
 
   --color-doctype-fg: #9aa4b2;
 
-  --color-ring: #7c83ff;
+  --color-ring: #10b981;
 
   --color-overlay: rgba(0, 0, 0, 0.62);
 
-  --md-link: #8fa6ff;
+  --md-link: #34d399;
   --md-code-bg: #1b2029;
   --md-code-fg: #e6e9ef;
   --md-pre-bg: #080a0f;
@@ -267,12 +269,12 @@
   --color-muted: #5b6573;
   --color-faint: #5f6b7a;
 
-  --color-primary: #4f46e5;
+  --color-primary: #059669;
   --color-primary-foreground: #ffffff;
-  --color-accent: #4f46e5;
-  --color-accent-hover: #4338ca;
-  --color-accent-subtle: #eef0fe;
-  --color-accent-subtle-foreground: #3730a3;
+  --color-accent: #059669;
+  --color-accent-hover: #047857;
+  --color-accent-subtle: #ecfdf5;
+  --color-accent-subtle-foreground: #065f46;
 
   --color-success: #067a5b;
   --color-success-foreground: #ffffff;
@@ -308,11 +310,11 @@
 
   --color-doctype-fg: #5b6573;
 
-  --color-ring: #4f46e5;
+  --color-ring: #059669;
 
   --color-overlay: rgba(13, 17, 23, 0.45);
 
-  --md-link: #3056d6;
+  --md-link: #047857;
   --md-code-bg: #f1f3f6;
   --md-code-fg: #0d1117;
   --md-pre-bg: #0d1117;
@@ -419,8 +421,8 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    Helvetica, Arial, sans-serif;
+  font-family: 'Exo 2', 'Exo 2.0', ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 button,
@@ -597,7 +599,7 @@ label {
   border-radius: 4px;
   padding: 0.1rem 0.3rem;
   font-size: 14px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .md pre {
   background: var(--md-pre-bg);

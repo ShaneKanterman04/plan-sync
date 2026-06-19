@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import {
   DOCUMENT_TYPES,
   WORKSPACE_FILE_ROLES,
+  type DocumentSummary,
   type DocumentType,
   type Message,
   type Plan,
@@ -15,6 +16,7 @@ import {
 import { api, timeLabel } from "@/components/api";
 import { ActionBar } from "@/components/ActionBar";
 import { ChangesRequestedModal } from "@/components/ChangesRequestedModal";
+import { DocumentList } from "@/components/DocumentList";
 import { DocumentTypeBadge } from "@/components/DocumentTypeBadge";
 import { LoadError } from "@/components/LoadError";
 import { MessageThread } from "@/components/MessageThread";
@@ -59,6 +61,7 @@ export default function WorkspacePage() {
 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftDocumentType, setDraftDocumentType] = useState<DocumentType>("plan");
@@ -92,9 +95,10 @@ export default function WorkspacePage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api<{ plan: Plan; messages: Message[] }>(path);
+      const data = await api<{ plan: Plan; messages: Message[]; documents?: DocumentSummary[] }>(path);
       setMessages(data.messages);
       if (!editingRef.current) setPlan(data.plan);
+      if (data.documents) setDocuments(data.documents);
       markSeen({
         lastMessageAt: data.messages.at(-1)?.createdAt ?? null,
         messageCount: data.messages.length,
@@ -345,6 +349,12 @@ export default function WorkspacePage() {
           Read-only review mode. Editing, approval, and messages are disabled.
         </p>
       )}
+
+      <DocumentList
+        workspace={workspace}
+        documents={documents}
+        currentDocId="primary"
+      />
 
       {plan ? (
         <>
