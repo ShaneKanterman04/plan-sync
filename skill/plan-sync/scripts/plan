@@ -71,11 +71,15 @@ Server:
 Plan (needs PLAN_WORKSPACE="\${PLAN_WORKSPACE}"):
   plan get                     show plan + messages (JSON)
   plan show                    print the plan body markdown
-  plan put [FILE] [--title T] [--type plan|summary|retrospective] [--sync-file F] [--linked-file F] [--ref F]
-                               write the plan body from FILE or stdin with git/source metadata
+  plan put [FILE] [--title T] [--type plan|summary|retrospective] [--sync-file F] [--linked-file F] [--ref F] [--doc SLUG]
+                               write the primary plan body from FILE or stdin; with --doc, writes a named document
+  plan docs                    list all documents in the workspace
+  plan new <slug> [--title T] [--type plan|summary|retrospective] [--file F]
+                               create/update a named document (body from --file, stdin if piped, or empty)
   plan status                  show current status/version
   plan status NEW [--note N]   set status: draft|review|changes_requested|approved|implementing|done
-  plan msg [--kind K] "TEXT"   post a message (kind: note|check|progress|approve|request_changes|proof)
+  plan msg [--kind K] [--doc SLUG] "TEXT"
+                               post a message to the primary plan or named document (kind: note|check|progress|approve|request_changes|proof)
   plan messages [--since ISO]  list messages
   plan poll                    one-shot status+message snapshot
   plan preflight               check workspace files and stale approval metadata, then post a check message
@@ -244,6 +248,27 @@ print(json.dumps(out))
 PY
 }
 
+json_doc_post() {
+  # json_doc_post SLUG BODY_FILE [key=value...]
+  need_py
+  python3 - "$@" <<'PY'
+import json
+import sys
+
+slug = sys.argv[1]
+body_path = sys.argv[2]
+args = sys.argv[3:]
+with open(body_path, "r", encoding="utf-8") as handle:
+    body = handle.read()
+out = {"author": "agent", "slug": slug, "bodyMd": body}
+for arg in args:
+    key, _, value = arg.partition("=")
+    if value:
+        out[key] = value
+print(json.dumps(out))
+PY
+}
+
 git_branch() { git rev-parse --abbrev-ref HEAD 2>/dev/null || true; }
 git_sha() { git rev-parse --short=12 HEAD 2>/dev/null || true; }
 
@@ -309,9 +334,10 @@ case "$cmd" in
     ;;
   put)
     need_ws
-    title=""; doc_type=""; sync_file=""; file="-"; refs=()
+    doc_slug=""; title=""; doc_type=""; sync_file=""; file="-"; refs=()
     while [ $# -gt 0 ]; do
       case "$1" in
+        --doc) doc_slug="${2:-}"; shift 2 ;;
         --title) title="${2:-}"; shift 2 ;;
         --type) doc_type="${2:-}"; shift 2 ;;
         --sync-file|--linked-file) sync_file="${2:-}"; shift 2 ;;
@@ -321,15 +347,22 @@ case "$cmd" in
     done
     tmp="$(mktemp)"
     if [ "$file" = "-" ]; then cat >"$tmp"; else cp "$file" "$tmp"; fi
-    args=()
-    [ -n "$title" ] && args+=("title=${title}")
-    [ -n "$doc_type" ] && args+=("documentType=${doc_type}")
-    [ -n "$sync_file" ] && args+=("syncFile=${sync_file}")
-    branch="$(git_branch)"; sha="$(git_sha)"
-    [ -n "$branch" ] && args+=("sourceBranch=${branch}")
-    [ -n "$sha" ] && args+=("sourceSha=${sha}")
-    args+=("${refs[@]}")
-    curl_json PUT "" "$(json_plan_put "$tmp" "${args[@]}")" | pp
+    if [ -n "$doc_slug" ]; then
+      args=()
+      args+=("title=${title:-${doc_slug}}")
+      [ -n "$doc_type" ] && args+=("documentType=${doc_type}")
+      curl_json POST "/documents" "$(json_doc_post "$doc_slug" "$tmp" "${args[@]}")" | pp
+    else
+      args=()
+      [ -n "$title" ] && args+=("title=${title}")
+      [ -n "$doc_type" ] && args+=("documentType=${doc_type}")
+      [ -n "$sync_file" ] && args+=("syncFile=${sync_file}")
+      branch="$(git_branch)"; sha="$(git_sha)"
+      [ -n "$branch" ] && args+=("sourceBranch=${branch}")
+      [ -n "$sha" ] && args+=("sourceSha=${sha}")
+      args+=("${refs[@]}")
+      curl_json PUT "" "$(json_plan_put "$tmp" "${args[@]}")" | pp
+    fi
     rm -f "$tmp"
     ;;
   status)
@@ -348,13 +381,21 @@ case "$cmd" in
     ;;
   msg)
     need_ws
-    kind="note"
+    doc_slug=""; kind="note"
     while [ $# -gt 0 ]; do
-      case "$1" in --kind) kind="${2:-}"; shift 2 ;; *) break ;; esac
+      case "$1" in
+        --doc) doc_slug="${2:-}"; shift 2 ;;
+        --kind) kind="${2:-}"; shift 2 ;;
+        *) break ;;
+      esac
     done
     text="${1:-}"
-    [ -n "$text" ] || die 'usage: plan msg [--kind K] "message"'
-    curl_json POST "/messages" "$(json_obj author=agent "kind=${kind}" "body=${text}")" | pp
+    [ -n "$text" ] || die 'usage: plan msg [--kind K] [--doc SLUG] "message"'
+    if [ -n "$doc_slug" ]; then
+      curl_json POST "/d/${doc_slug}/messages" "$(json_obj author=agent "kind=${kind}" "body=${text}")" | pp
+    else
+      curl_json POST "/messages" "$(json_obj author=agent "kind=${kind}" "body=${text}")" | pp
+    fi
     ;;
   messages)
     need_ws
@@ -507,6 +548,46 @@ except Exception:
     ;;
   revisions)
     need_ws; curl_json GET "/revisions" | pp
+    ;;
+  docs)
+    need_ws
+    if command -v jq >/dev/null 2>&1; then
+      curl_json GET "/documents" | jq -r '(.documents // [])[] | "\(.slug) · \(.documentType) · \(.title) · v\(.version) · \(.updatedAt) · (\(.messageCount) msgs)"'
+    else
+      curl_json GET "/documents" | python3 -c '
+import sys, json
+data = json.load(sys.stdin)
+for d in (data.get("documents") or []):
+    print("{slug} \xb7 {documentType} \xb7 {title} \xb7 v{version} \xb7 {updatedAt} \xb7 ({messageCount} msgs)".format(**d))
+'
+    fi
+    ;;
+  new)
+    need_ws
+    doc_slug="${1:-}"; shift || true
+    [ -n "$doc_slug" ] || die 'usage: plan new <slug> [--title T] [--type T] [--file F]'
+    title=""; doc_type=""; file=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --title) title="${2:-}"; shift 2 ;;
+        --type) doc_type="${2:-}"; shift 2 ;;
+        --file) file="${2:-}"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    tmp="$(mktemp)"
+    if [ -n "$file" ]; then
+      cp "$file" "$tmp"
+    elif [ ! -t 0 ]; then
+      cat >"$tmp"
+    else
+      : >"$tmp"
+    fi
+    args=()
+    args+=("title=${title:-${doc_slug}}")
+    [ -n "$doc_type" ] && args+=("documentType=${doc_type}")
+    curl_json POST "/documents" "$(json_doc_post "$doc_slug" "$tmp" "${args[@]}")" | pp
+    rm -f "$tmp"
     ;;
   help|--help|-h)
     usage; exit 0

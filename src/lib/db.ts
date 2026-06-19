@@ -1098,10 +1098,11 @@ export function putDocument(input: {
   author: Author;
 }): Document {
   const slug = slugify(input.slug || input.title);
-  const existing = input.docId
-    ? getDocument(input.workspace, input.docId)
-    : getDocumentBySlug(input.workspace, slug);
-  const docId = existing?.docId ?? input.docId ?? id();
+  // doc_id IS the slug (unless an explicit docId is given) so the CLI/API/user
+  // all reference a document by the same human-readable handle; re-publishing the
+  // same slug updates in place via the upsert below.
+  const docId = input.docId ?? slug;
+  const existing = getDocument(input.workspace, docId);
   const at = now();
   const nextVersion = (existing?.version ?? 0) + 1;
   const title = cleanLine(input.title, 120) || existing?.title || slug;
