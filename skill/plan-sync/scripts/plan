@@ -92,15 +92,6 @@ Plan (needs PLAN_WORKSPACE="\${PLAN_WORKSPACE}"):
                                requests changes, edits, or replies — then print what changed
   plan revisions               body revision history
 
-Plugin:
-  plan plugin listen [--timeout S] [--interval N]
-                               BLOCK until approval, changes requested, or a new human message;
-                               prints JSON for the active Codex session to handle
-  plan plugin wait             BLOCK until valid approval or changes requested
-  plan plugin preflight        validate the approved plan before implementation
-  plan plugin run-codex        launch the non-interactive implementation runner
-  plan plugin daemon           wait for approval, then run preflight + implementation
-
 Env/config: PLAN_API_URL, PLAN_WORKSPACE, PLAN_SYNC_DIR, PLAN_HOST, PLAN_PORT, PLAN_API_TOKEN
 EOF
 }

@@ -11,12 +11,13 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ workspace: string; doc: string }> };
 
 // GET the document's discussion thread.
-export async function GET(_req: Request, { params }: Ctx) {
+export async function GET(req: Request, { params }: Ctx) {
   try {
     const workspace = await readWorkspace(params);
     const { doc } = await params;
     if (!getDocument(workspace, doc)) throw new HttpError(404, "document not found");
-    return NextResponse.json({ messages: getDocumentMessages(workspace, doc) });
+    const since = new URL(req.url).searchParams.get("since") ?? undefined;
+    return NextResponse.json({ messages: getDocumentMessages(workspace, doc, since) });
   } catch (error) {
     return fail(error);
   }

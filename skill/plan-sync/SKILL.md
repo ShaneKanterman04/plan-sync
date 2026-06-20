@@ -2,21 +2,28 @@
 name: plan-sync
 description: >-
   Collaborate with a human reviewer on an implementation plan through the
-  plan-sync app before writing code. Use whenever you are about to start a
-  non-trivial task and want human sign-off, when the user says "post the plan",
-  "write the plan", "send it for review", "wait for approval", "check the
-  plan", "pick up the plan", or "did they approve?", or when resuming work that
-  was handed off. The flow: write a plan, hand it off, poll for the human's
-  edits/approval, run a preflight check, then implement while reporting
-  progress. Requires the PLAN_API_URL and PLAN_WORKSPACE environment variables.
+  plan-sync app before writing code, or publish status/summary/retrospective
+  documents the human can browse on their phone. Use whenever you are about to
+  start a non-trivial task and want human sign-off, when the user says "post
+  the plan", "write the plan", "send it for review", "wait for approval",
+  "check the plan", "pick up the plan", or "did they approve?", or when
+  resuming work that was handed off. Also use when you finish a substantial
+  piece of work and want to share the outcome ("publish a summary", "post an
+  update", "share a doc to my phone", "publish a retrospective"). The flow:
+  write a plan, hand it off, poll for the human's edits/approval, then
+  implement while reporting progress. Requires the PLAN_API_URL and
+  PLAN_WORKSPACE environment variables.
 ---
 
 # plan-sync
 
-plan-sync is a shared plan document for the current workspace that a human
-reviews and edits on their phone. There is exactly **one living plan per
-workspace**. You (the agent) write to it through a small HTTP API; the human
-reads, edits, and approves it; then the mandatory plugin gates implementation.
+plan-sync is a shared workspace where a human reviews documents on their phone.
+Each workspace holds **one primary plan** (the review→approve→implement
+lifecycle) **plus any number of additional documents** — summaries, status
+updates, retrospectives — that the agent publishes and the human can browse and
+discuss. You write everything through a small HTTP API; the human reads, edits,
+and approves via the phone UI. Publishing an extra document never overwrites
+the primary plan.
 
 plan-sync runs **locally**, bound to `0.0.0.0` so the human can open it from
 their phone on the same network. The skill starts the server itself.
@@ -34,10 +41,10 @@ The bundled `scripts/plan` helper reads these (env, or `config.env` written by
 - `PLAN_API_TOKEN` — optional; only if the server has auth enabled
 - `PLAN_UPLOAD_ROOT` — where phone uploads are written (installer default:
   `<workspace>/.plan-sync/uploads`)
-- `PLAN_AGENT_NAME` — runner name recorded by the plugin (default `codex`)
-- `PLAN_AGENT_CMD` — non-interactive implementation command (default `codex exec`)
-- `PLAN_PREFLIGHT_CMD` — command the plugin runs before implementation
-- `PLAN_VALIDATE_CMD` — command the plugin runs before marking done
+- `PLAN_PREFLIGHT_CMD` / `PLAN_VALIDATE_CMD` — the project's preflight and
+  validation commands; run them yourself before you implement and before you
+  mark the plan `done` (there is no plugin runner in this install — you drive
+  the work and report progress manually)
 
 Run `./scripts/plan help` for the full command list. (`python3` is required for
 the write commands; `jq` is used for pretty output if present.)
@@ -62,55 +69,77 @@ Draft the plan in markdown, then:
 ./scripts/plan msg "Posted a plan for <task>. Ready for your review."
 ```
 Then tell the user: "Plan posted — review it at `$PLAN_API_URL` on your phone."
-**Do not start implementing directly. Implementation must go through
-`./scripts/plan plugin`.**
+**Do not start implementing directly — wait for approval via `./scripts/plan watch`.**
 
 ### 2. Wait for the human's response
-Block in the active Codex TUI until the human responds:
+Block until the human responds:
 ```bash
-./scripts/plan plugin listen --timeout 600 --interval 3
+./scripts/plan watch --timeout 600 --interval 3
 ```
-The command prints a JSON event:
-- `human_message`: treat the new human note(s) as reviewer input. Rewrite the
-  whole `syncFile`, run `./scripts/plan put "$syncFile" --sync-file "$syncFile"`
-  (preserving any title/type/ref metadata you need), post a concise agent reply,
-  and run `plugin listen` again.
-- `approved`: continue to the preflight check.
-- `changes_requested`: address the feedback, rewrite/sync the plan, set status
-  back to `review`, post a short reply, and run `plugin listen` again.
-- `stale_approval`, `sync_error`, or `timeout`: report the reason and stop.
-
-If the plan has no sync file, `plugin listen` uses `plans/<workspace>.md`.
-Never write absolute or repo-escaping workspace file paths; the plugin reports those as
-`sync_error`.
-
-`./scripts/plan plugin wait` remains available for approval-only automation, but
-the active TUI review loop should use `plugin listen` so phone messages wake the
-same Codex session.
+The command blocks, then exits and prints what changed. Interpret the outcome:
+- **Human message posted**: treat the new note(s) as reviewer input. Rewrite the
+  plan file, run `./scripts/plan put <file>` to sync it, post a concise agent
+  reply with `./scripts/plan msg`, and run `watch` again.
+- **Status → `approved`**: continue to implementation (step 3).
+- **Status → `changes_requested`**: address the feedback, update the plan file,
+  run `./scripts/plan put <file>`, set status back to `review`, post a short
+  reply, and run `watch` again.
+- **Timeout**: report the reason and stop; the human can resume later.
 
 ### Phone file uploads
 The phone UI can upload `.csv`, `.txt`, `.md`, `.json`, and `.log` files into the
 workspace upload inbox. Uploaded files are saved under `$PLAN_UPLOAD_ROOT`, added
 to the plan as `reference` workspace files, and accompanied by a human note so
-`plugin listen` wakes the active agent. Treat those uploaded paths like any other
-workspace file during review and preflight.
+`./scripts/plan watch` wakes the active agent. Treat those uploaded paths like
+any other workspace file during review and preflight.
 
-### 3. Run the plugin gate
-Use the plugin preflight and runner. The plugin validates approval version,
-branch/SHA metadata, workspace files, and `$PLAN_PREFLIGHT_CMD` before it
-launches Codex:
+### 3. Implement and report progress
+After approval, implement the plan. Post progress and proof messages as you go:
 ```bash
-./scripts/plan plugin preflight
-./scripts/plan plugin run-codex
+./scripts/plan status implementing
+./scripts/plan msg "Starting implementation — <brief description>."
+# … do the work …
+./scripts/plan msg "Done — <what was verified>."
+./scripts/plan status done
 ```
-For unattended handoff after posting the plan, use:
+If the human requests changes mid-implementation, run `./scripts/plan watch` at
+key milestones to catch new messages, address them, set status back to `review`,
+and run `watch` again before continuing.
+
+## Documents (publish more than the plan)
+
+In addition to the primary plan, you can publish standalone documents —
+summaries, status updates, retrospectives — that the human can browse and
+discuss on their phone. Document type is one of `plan | summary | retrospective`.
+Each document is addressed by a slug; re-publishing the same slug updates it in place.
+
 ```bash
-./scripts/plan plugin daemon
+./scripts/plan docs                                          # list all documents in the workspace
+./scripts/plan new <slug> --title "T" [--type summary|retrospective|plan] [--file F]
+                                                             # publish a NEW document
+./scripts/plan put <file> --doc <slug> [--title "T"]        # update an existing document
+./scripts/plan msg "text" --doc <slug>                      # comment on a document's thread
+# Without --doc, put/msg target the PRIMARY plan (unchanged behaviour)
 ```
 
-The plugin posts check/progress/proof messages and marks status `done` only
-after `$PLAN_VALIDATE_CMD` passes. If the plan changes or the human requests
-changes during implementation, the plugin interrupts Codex and exits nonzero.
+**ACTIVELY USE IT — mandatory, not optional. Publish these proactively, without waiting to be asked:**
+
+- **Before non-trivial work**: post a primary `plan` and go through the approve flow above.
+- **When you finish a substantial piece of work**: publish a `summary` document
+  (`./scripts/plan new <topic> --type summary`) covering what changed, how it was
+  validated, and what's next. One new slug per deliverable/topic.
+- **After an incident or for lessons learned**: publish a `retrospective` document.
+- **For long-running efforts**: keep a status document and update it in place
+  (`./scripts/plan put <file> --doc <slug>`).
+
+Never overwrite the primary plan with a status/summary report — extra documents
+are exactly what the slug-addressed commands are for.
+
+`./scripts/plan watch` tracks only the **primary plan**. A published document's
+discussion thread is separate — to read the human's replies on a document you
+published, re-run `./scripts/plan docs` (its per-document message count rises) or
+`GET /api/w/:ws/d/:doc/messages?since=<ISO>`. Documents are publish-and-discuss;
+the approval/`watch` gate is for the primary plan only.
 
 ## Status lifecycle (only these transitions are legal)
 ```

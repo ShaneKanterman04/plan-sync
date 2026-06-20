@@ -95,4 +95,15 @@ describe("documents data layer", () => {
     ).toThrow("document not found");
     expect(listWorkspaceDocuments(ws)[0].messageCount).toBe(1);
   });
+
+  test("getDocumentMessages filters by since (for polling doc-thread replies)", () => {
+    const ws = "docs-since";
+    const doc = putDocument({ workspace: ws, title: "Threaded", bodyMd: "t", author: "agent" });
+    const first = addDocumentMessage({ workspace: ws, docId: doc.docId, author: "agent", body: "one" });
+    addDocumentMessage({ workspace: ws, docId: doc.docId, author: "human", body: "two" });
+    expect(getDocumentMessages(ws, doc.docId)).toHaveLength(2);
+    const after = getDocumentMessages(ws, doc.docId, first.createdAt);
+    expect(after).toHaveLength(1);
+    expect(after[0].body).toBe("two");
+  });
 });

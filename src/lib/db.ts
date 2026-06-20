@@ -1145,14 +1145,23 @@ export function deleteDocument(workspace: string, docId: string): boolean {
   return result.changes > 0;
 }
 
-export function getDocumentMessages(workspace: string, docId: string): Message[] {
-  return (
-    db
-      .prepare(
-        "SELECT * FROM document_messages WHERE workspace = ? AND doc_id = ? ORDER BY created_at, id",
-      )
-      .all(workspace, docId) as any[]
-  ).map((row) => ({
+export function getDocumentMessages(
+  workspace: string,
+  docId: string,
+  sinceIso?: string,
+): Message[] {
+  const rows = sinceIso
+    ? db
+        .prepare(
+          "SELECT * FROM document_messages WHERE workspace = ? AND doc_id = ? AND created_at > ? ORDER BY created_at, id",
+        )
+        .all(workspace, docId, sinceIso)
+    : db
+        .prepare(
+          "SELECT * FROM document_messages WHERE workspace = ? AND doc_id = ? ORDER BY created_at, id",
+        )
+        .all(workspace, docId);
+  return (rows as any[]).map((row) => ({
     id: row.id,
     workspace: row.workspace,
     author: row.author,
