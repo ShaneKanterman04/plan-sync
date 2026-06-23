@@ -26,6 +26,7 @@ jest.mock("next/link", () => ({
 // Stub lucide-react icons so they render as accessible SVG placeholders rather
 // than triggering ESM-resolution issues in jsdom.
 jest.mock("lucide-react", () => ({
+  ChevronRight: () => <svg data-testid="icon-chevron" aria-hidden="true" />,
   FileText: () => <svg data-testid="icon-file-text" aria-hidden="true" />,
   History: () => <svg data-testid="icon-history" aria-hidden="true" />,
   ScrollText: () => <svg data-testid="icon-scroll-text" aria-hidden="true" />,
@@ -77,6 +78,19 @@ const retroDoc: DocumentSummary = doc({
 
 const documents: DocumentSummary[] = [primaryDoc, summaryDoc, retroDoc];
 
+// A workspace with enough summaries to trip the search box + default-collapse.
+const manySummaries: DocumentSummary[] = [
+  primaryDoc,
+  ...Array.from({ length: 7 }, (_, i) =>
+    doc({
+      docId: `summary-${i + 1}`,
+      slug: `summary-${i + 1}`,
+      title: `Summary ${i + 1}`,
+      documentType: "summary",
+    }),
+  ),
+];
+
 // --- Tests --------------------------------------------------------------------
 
 describe("DocumentList", () => {
@@ -87,7 +101,19 @@ describe("DocumentList", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  test("renders one row per document in the supplied order (primary first)", () => {
+  test("groups documents into type sections with counts (plan first)", () => {
+    render(
+      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+    );
+
+    expect(screen.getByRole("button", { name: /^Plan \(1\)$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Summaries \(1\)$/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^Retrospectives \(1\)$/ }),
+    ).toBeInTheDocument();
+  });
+
+  test("renders one row per document, small sections open by default (primary first)", () => {
     render(
       <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
     );
@@ -115,8 +141,9 @@ describe("DocumentList", () => {
       <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
     );
 
-    const currentLink = screen.getByRole("link", { name: /Implementation plan/ });
-    expect(currentLink).toHaveAttribute("aria-current", "page");
+    expect(
+      screen.getByRole("link", { name: /Implementation plan/ }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   test("non-current rows do not have aria-current", () => {
@@ -124,8 +151,9 @@ describe("DocumentList", () => {
       <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
     );
 
-    const nonCurrentLink = screen.getByRole("link", { name: /Project summary/ });
-    expect(nonCurrentLink).not.toHaveAttribute("aria-current");
+    expect(
+      screen.getByRole("link", { name: /Project summary/ }),
+    ).not.toHaveAttribute("aria-current");
   });
 
   test("switching currentDocId highlights the correct extra-doc row", () => {
@@ -145,32 +173,13 @@ describe("DocumentList", () => {
     ).not.toHaveAttribute("aria-current");
   });
 
-  test("renders a StatusBadge for the primary document", () => {
+  test("renders a StatusBadge only for the primary document", () => {
     render(
       <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
     );
 
-    // The StatusBadge for "review" renders "In review".
-    expect(screen.getByTitle("In review")).toBeInTheDocument();
-  });
-
-  test("does not render a StatusBadge for non-primary documents", () => {
-    render(
-      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
-    );
-
-    // There should be exactly one status badge (the primary plan's).
+    // The StatusBadge for "review" renders "In review" — exactly one (primary).
     expect(screen.getAllByTitle("In review")).toHaveLength(1);
-  });
-
-  test("renders DocumentTypeBadge for each document", () => {
-    render(
-      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
-    );
-
-    expect(screen.getByTitle("Plan")).toBeInTheDocument();
-    expect(screen.getByTitle("Summary")).toBeInTheDocument();
-    expect(screen.getByTitle("Retrospective")).toBeInTheDocument();
   });
 
   test("shows the unread dot when messageCount > 0 with an accessible label", () => {
@@ -179,8 +188,7 @@ describe("DocumentList", () => {
     );
 
     // summaryDoc has messageCount: 2.
-    const dot = screen.getByLabelText("2 messages");
-    expect(dot).toBeInTheDocument();
+    expect(screen.getByLabelText("2 messages")).toBeInTheDocument();
   });
 
   test("does not show an unread dot when messageCount is 0", () => {
@@ -188,17 +196,17 @@ describe("DocumentList", () => {
       <DocumentList workspace="demo" documents={[primaryDoc, retroDoc]} currentDocId="primary" />,
     );
 
-    // Neither fixture has messages.
     expect(screen.queryByLabelText(/message/)).toBeNull();
   });
 
-  test("includes vN in the meta line", () => {
+  test("includes vN and the author in the meta line", () => {
     render(
       <DocumentList workspace="demo" documents={[primaryDoc]} currentDocId="primary" />,
     );
 
-    // primaryDoc has version: 3.
-    expect(screen.getByRole("link", { name: /Implementation plan/ })).toHaveTextContent("v3");
+    const link = screen.getByRole("link", { name: /Implementation plan/ });
+    expect(link).toHaveTextContent("v3");
+    expect(link).toHaveTextContent("agent");
   });
 
   test("encodes workspace and slug in hrefs when they contain special characters", () => {
@@ -212,108 +220,91 @@ describe("DocumentList", () => {
       <DocumentList workspace="my workspace" documents={[spacedDoc]} currentDocId="other" />,
     );
 
-    const link = screen.getByRole("link");
-    expect(link).toHaveAttribute("href", "/w/my%20workspace/d/my%20doc");
-  });
-
-  // --- Filter chip tests -------------------------------------------------------
-
-  test("does not render filter chips when only one document type is present", () => {
-    // Only primaryDoc (plan type) — no variety.
-    render(
-      <DocumentList workspace="demo" documents={[primaryDoc]} currentDocId="primary" />,
-    );
-
-    expect(screen.queryByRole("group", { name: /filter by document type/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: "All" })).toBeNull();
-  });
-
-  test("renders filter chips (All + one per type) when multiple types are present", () => {
-    render(
-      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
-    );
-
-    // documents has plan, summary, retrospective.
-    expect(screen.getByRole("button", { name: "All" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Plan" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Summary" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retrospective" })).toBeInTheDocument();
-  });
-
-  test("the 'All' chip is aria-pressed=true initially", () => {
-    render(
-      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
-    );
-
-    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "Plan" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
+    expect(screen.getByRole("link")).toHaveAttribute(
+      "href",
+      "/w/my%20workspace/d/my%20doc",
     );
   });
 
-  test("clicking a type chip filters the list to that type only", async () => {
+  // --- Collapse / expand -------------------------------------------------------
+
+  test("collapses a large section by default and reveals its rows when expanded", async () => {
     const user = userEvent.setup();
     render(
-      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+      <DocumentList workspace="demo" documents={manySummaries} currentDocId="primary" />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Summary" }));
+    // The 7-summary section is collapsed by default; only the plan link shows.
+    const summariesHeader = screen.getByRole("button", { name: /^Summaries \(7\)$/ });
+    expect(summariesHeader).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("link", { name: /Summary 3/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /Implementation plan/ })).toBeInTheDocument();
+
+    await user.click(summariesHeader);
+
+    expect(summariesHeader).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("link", { name: /Summary 3/ })).toBeInTheDocument();
+  });
+
+  test("keeps the section containing the current document open by default", () => {
+    render(
+      <DocumentList workspace="demo" documents={manySummaries} currentDocId="summary-4" />,
+    );
+
+    // Even though the summaries section is large, it holds the current doc.
+    expect(screen.getByRole("button", { name: /^Summaries \(7\)$/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      screen.getByRole("link", { name: /Summary 4/ }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  // --- Search ------------------------------------------------------------------
+
+  test("shows a search box only once a workspace has many documents", () => {
+    const { rerender } = render(
+      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+    );
+    expect(screen.queryByRole("searchbox", { name: /search documents/i })).toBeNull();
+
+    rerender(
+      <DocumentList workspace="demo" documents={manySummaries} currentDocId="primary" />,
+    );
+    expect(
+      screen.getByRole("searchbox", { name: /search documents/i }),
+    ).toBeInTheDocument();
+  });
+
+  test("typing in the search box filters across all sections and force-opens matches", async () => {
+    const user = userEvent.setup();
+    render(
+      <DocumentList workspace="demo" documents={manySummaries} currentDocId="primary" />,
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: /search documents/i }),
+      "Summary 5",
+    );
 
     const links = screen.getAllByRole("link");
     expect(links).toHaveLength(1);
-    expect(links[0]).toHaveTextContent("Project summary");
+    expect(links[0]).toHaveTextContent("Summary 5");
   });
 
-  test("clicking a type chip marks it aria-pressed=true and deactivates 'All'", async () => {
+  test("shows an empty-state message when the search matches nothing", async () => {
     const user = userEvent.setup();
     render(
-      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+      <DocumentList workspace="demo" documents={manySummaries} currentDocId="primary" />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Plan" }));
-
-    expect(screen.getByRole("button", { name: "Plan" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-  });
-
-  test("clicking 'All' chip after a type filter restores all rows", async () => {
-    const user = userEvent.setup();
-    render(
-      <DocumentList workspace="demo" documents={documents} currentDocId="primary" />,
+    await user.type(
+      screen.getByRole("searchbox", { name: /search documents/i }),
+      "nonexistent-doc",
     );
 
-    await user.click(screen.getByRole("button", { name: "Retrospective" }));
-    expect(screen.getAllByRole("link")).toHaveLength(1);
-
-    await user.click(screen.getByRole("button", { name: "All" }));
-    expect(screen.getAllByRole("link")).toHaveLength(3);
-  });
-
-  test("filter chips are hidden when all documents share the same type", () => {
-    const anotherPlan: DocumentSummary = doc({
-      docId: "plan-2",
-      slug: "plan-2",
-      title: "Second plan",
-      documentType: "plan",
-    });
-    render(
-      <DocumentList
-        workspace="demo"
-        documents={[primaryDoc, anotherPlan]}
-        currentDocId="primary"
-      />,
-    );
-
-    expect(screen.queryByRole("button", { name: "All" })).toBeNull();
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.getByText(/No documents match/)).toBeInTheDocument();
   });
 });

@@ -66,6 +66,7 @@ const first: WorkspaceSummary[] = [
     lastMessageAt: null,
     lastMessagePreview: null,
     staleReasons: [],
+    agentActivity: { at: "2026-06-04T00:00:00.000Z", source: "plan", liveState: null, agentName: null },
   },
 ];
 
@@ -87,6 +88,7 @@ const second: WorkspaceSummary[] = [
     lastMessageAt: null,
     lastMessagePreview: null,
     staleReasons: [],
+    agentActivity: { at: "2026-06-04T00:01:00.000Z", source: "document", liveState: null, agentName: null },
   },
 ];
 
@@ -231,6 +233,7 @@ const withMessages: WorkspaceSummary[] = [
     lastMessageAt: "2026-06-04T00:02:00.000Z",
     lastMessagePreview: "needs another look",
     staleReasons: [],
+    agentActivity: { at: "2026-06-04T00:02:00.000Z", source: "message", liveState: null, agentName: null },
   },
 ];
 
