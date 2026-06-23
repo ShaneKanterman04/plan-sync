@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
-import { ensurePlan, getMessages, listWorkspaceDocuments, putPlanBody } from "@/lib/db";
+import { ensurePlan, getAgentActivity, getMessages, listWorkspaceDocuments, putPlanBody } from "@/lib/db";
 import { broadcast } from "@/lib/events";
 import { fail, readWorkspace } from "@/lib/http";
 import { putPlanSchema } from "@/lib/schema";
@@ -20,6 +20,7 @@ export async function GET(_req: Request, { params }: Ctx) {
       plan,
       messages: getMessages(workspace, undefined, "human"),
       documents: listWorkspaceDocuments(workspace),
+      agentActivity: getAgentActivity(workspace),
     });
   } catch (error) {
     return fail(error);

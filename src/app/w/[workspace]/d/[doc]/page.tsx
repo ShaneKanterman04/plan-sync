@@ -4,8 +4,15 @@ import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
-import type { Document, Message } from "@/lib/types";
+import type {
+  AgentActivity as AgentActivityData,
+  Document,
+  DocumentSummary,
+  Message,
+} from "@/lib/types";
 import { api, timeLabel } from "@/components/api";
+import { AgentActivity } from "@/components/AgentActivity";
+import { DocumentList } from "@/components/DocumentList";
 import { DocumentTypeBadge } from "@/components/DocumentTypeBadge";
 import { LoadError } from "@/components/LoadError";
 import { Markdown } from "@/components/Markdown";
@@ -25,10 +32,13 @@ export default function DocPage() {
   const docPath = `/api/w/${encodeURIComponent(workspace)}/d/${encodeURIComponent(doc)}`;
   // Documents share the workspace-level SSE stream; no dedicated doc events route.
   const eventsPath = `/api/w/${encodeURIComponent(workspace)}/events`;
+  const overviewPath = `/api/w/${encodeURIComponent(workspace)}/documents`;
   const workspacePath = `/w/${encodeURIComponent(workspace)}`;
 
   const [document, setDocument] = useState<Document | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [agentActivity, setAgentActivity] = useState<AgentActivityData | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
@@ -55,7 +65,19 @@ export default function DocPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load.");
     }
-  }, [docPath, markSeen]);
+    // The sidebar switcher + agent-activity are best-effort: a failure here must
+    // not block reading the document itself, so it never sets the error banner.
+    try {
+      const overview = await api<{
+        documents: DocumentSummary[];
+        agentActivity: AgentActivityData;
+      }>(overviewPath);
+      setDocuments(overview.documents);
+      setAgentActivity(overview.agentActivity);
+    } catch {
+      // ignore — keep whatever sidebar data we already have.
+    }
+  }, [docPath, overviewPath, markSeen]);
 
   const connectionError = useLiveReload({
     url: eventsPath,
@@ -127,7 +149,7 @@ export default function DocPage() {
   return (
     <main
       id="main"
-      className="mx-auto min-h-[100dvh] max-w-2xl overflow-x-clip px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-10"
+      className="mx-auto min-h-[100dvh] max-w-2xl overflow-x-clip px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-10 lg:max-w-6xl"
     >
       <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-border-strong bg-surface/90 px-[max(1rem,env(safe-area-inset-left))] py-3 shadow-raised backdrop-blur">
         <nav aria-label="Back" className="flex items-center justify-between gap-2">
@@ -200,50 +222,59 @@ export default function DocPage() {
         </p>
       )}
 
-      {document ? (
-        <>
-          {/* Document metadata card */}
-          <section className="mb-4 rounded-card border border-border bg-surface p-4 text-sm text-muted shadow-card">
-            <dl className="grid gap-1.5 text-[0.8125rem] leading-[18px]">
-              <div className="flex flex-wrap gap-x-1.5">
-                <dt className="font-medium text-foreground">Updated</dt>
-                <dd>{timeLabel(document.updatedAt)}</dd>
-              </div>
-            </dl>
-          </section>
+      <div className="lg:grid lg:grid-cols-[19rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+        <aside className="mb-4 space-y-4 lg:sticky lg:top-24 lg:mb-0 lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:pr-1">
+          {agentActivity && <AgentActivity variant="card" activity={agentActivity} />}
+          <DocumentList workspace={workspace} documents={documents} currentDocId={doc} />
+        </aside>
 
-          {/* Document body */}
-          <section className="mb-4 rounded-card border border-border bg-surface p-4 shadow-card">
-            <Markdown>{document.bodyMd}</Markdown>
-          </section>
+        <div className="min-w-0">
+          {document ? (
+            <>
+              {/* Document metadata card */}
+              <section className="mb-4 rounded-card border border-border bg-surface p-4 text-sm text-muted shadow-card">
+                <dl className="grid gap-1.5 text-[0.8125rem] leading-[18px]">
+                  <div className="flex flex-wrap gap-x-1.5">
+                    <dt className="font-medium text-foreground">Updated</dt>
+                    <dd>{timeLabel(document.updatedAt)}</dd>
+                  </div>
+                </dl>
+              </section>
 
-          {/* Discussion thread */}
-          <MessageThread
-            messages={messages}
-            onSend={sendMessage}
-            firstUnreadAt={firstUnreadAt}
-          />
-        </>
-      ) : (
-        !error && (
-          <div aria-hidden="true" className="space-y-4">
-            <div className="rounded-card border border-border bg-surface p-4 shadow-card">
-              <div className="flex items-center gap-2">
-                <div className="h-5 w-16 animate-pulse rounded-full bg-surface-2" />
+              {/* Document body */}
+              <section className="mb-4 rounded-card border border-border bg-surface p-4 shadow-card">
+                <Markdown>{document.bodyMd}</Markdown>
+              </section>
+
+              {/* Discussion thread */}
+              <MessageThread
+                messages={messages}
+                onSend={sendMessage}
+                firstUnreadAt={firstUnreadAt}
+              />
+            </>
+          ) : (
+            !error && (
+              <div aria-hidden="true" className="space-y-4">
+                <div className="rounded-card border border-border bg-surface p-4 shadow-card">
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 w-16 animate-pulse rounded-full bg-surface-2" />
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    <div className="h-3 w-28 animate-pulse rounded bg-surface-2" />
+                  </div>
+                </div>
+                <div className="space-y-2 rounded-card border border-border bg-surface p-4 shadow-card">
+                  <div className="h-4 w-3/4 animate-pulse rounded bg-surface-2" />
+                  <div className="h-4 w-full animate-pulse rounded bg-surface-2" />
+                  <div className="h-4 w-5/6 animate-pulse rounded bg-surface-2" />
+                </div>
+                <span className="sr-only">Loading…</span>
               </div>
-              <div className="mt-3 space-y-2">
-                <div className="h-3 w-28 animate-pulse rounded bg-surface-2" />
-              </div>
-            </div>
-            <div className="space-y-2 rounded-card border border-border bg-surface p-4 shadow-card">
-              <div className="h-4 w-3/4 animate-pulse rounded bg-surface-2" />
-              <div className="h-4 w-full animate-pulse rounded bg-surface-2" />
-              <div className="h-4 w-5/6 animate-pulse rounded bg-surface-2" />
-            </div>
-            <span className="sr-only">Loading…</span>
-          </div>
-        )
-      )}
+            )
+          )}
+        </div>
+      </div>
 
       {/* Suppress the busy indicator — MessageThread tracks its own send state */}
       {busy && <span className="sr-only" aria-live="polite">Sending…</span>}

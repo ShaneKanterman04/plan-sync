@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import {
   DOCUMENT_TYPES,
   WORKSPACE_FILE_ROLES,
+  type AgentActivity as AgentActivityData,
   type DocumentSummary,
   type DocumentType,
   type Message,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/types";
 import { api, timeLabel } from "@/components/api";
 import { ActionBar } from "@/components/ActionBar";
+import { AgentActivity } from "@/components/AgentActivity";
 import { ChangesRequestedModal } from "@/components/ChangesRequestedModal";
 import { DocumentList } from "@/components/DocumentList";
 import { DocumentTypeBadge } from "@/components/DocumentTypeBadge";
@@ -62,6 +64,7 @@ export default function WorkspacePage() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [agentActivity, setAgentActivity] = useState<AgentActivityData | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftDocumentType, setDraftDocumentType] = useState<DocumentType>("plan");
@@ -95,10 +98,16 @@ export default function WorkspacePage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api<{ plan: Plan; messages: Message[]; documents?: DocumentSummary[] }>(path);
+      const data = await api<{
+        plan: Plan;
+        messages: Message[];
+        documents?: DocumentSummary[];
+        agentActivity?: AgentActivityData;
+      }>(path);
       setMessages(data.messages);
       if (!editingRef.current) setPlan(data.plan);
       if (data.documents) setDocuments(data.documents);
+      if (data.agentActivity) setAgentActivity(data.agentActivity);
       markSeen({
         lastMessageAt: data.messages.at(-1)?.createdAt ?? null,
         messageCount: data.messages.length,
@@ -306,7 +315,7 @@ export default function WorkspacePage() {
   return (
     <main
       id="main"
-      className="mx-auto min-h-[100dvh] max-w-2xl overflow-x-clip px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(9.5rem+env(safe-area-inset-bottom))]"
+      className="mx-auto min-h-[100dvh] max-w-2xl overflow-x-clip px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(9.5rem+env(safe-area-inset-bottom))] lg:max-w-6xl"
     >
       <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-border-strong bg-surface/90 px-[max(1rem,env(safe-area-inset-left))] py-3 shadow-raised backdrop-blur">
         <nav aria-label="Back" className="flex items-center justify-between gap-2">
@@ -350,13 +359,19 @@ export default function WorkspacePage() {
         </p>
       )}
 
-      <DocumentList
-        workspace={workspace}
-        documents={documents}
-        currentDocId="primary"
-      />
+      <div className="lg:grid lg:grid-cols-[19rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+        <aside className="mb-4 space-y-4 lg:sticky lg:top-24 lg:mb-0 lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:pr-1">
+          {agentActivity && <AgentActivity variant="card" activity={agentActivity} />}
 
-      {plan ? (
+          <DocumentList
+            workspace={workspace}
+            documents={documents}
+            currentDocId="primary"
+          />
+        </aside>
+
+        <div className="min-w-0">
+          {plan ? (
         <>
           <StaleWarning reasons={staleReasons(plan)} />
           <section className="mb-4 rounded-card border border-border bg-surface p-4 text-sm text-muted shadow-card">
@@ -555,14 +570,16 @@ export default function WorkspacePage() {
         </div>
       )}
 
-      {plan && !readOnly && !editing && (
-        <p className="mb-2 text-center text-[0.8125rem] leading-[18px] text-muted">
-          Shortcuts:{" "}
-          <kbd className="rounded bg-surface-2 px-1 font-mono text-foreground">E</kbd> edit ·{" "}
-          <kbd className="rounded bg-surface-2 px-1 font-mono text-foreground">A</kbd> approve ·{" "}
-          <kbd className="rounded bg-surface-2 px-1 font-mono text-foreground">R</kbd> request changes
-        </p>
-      )}
+          {plan && !readOnly && !editing && (
+            <p className="mb-2 text-center text-[0.8125rem] leading-[18px] text-muted">
+              Shortcuts:{" "}
+              <kbd className="rounded bg-surface-2 px-1 font-mono text-foreground">E</kbd> edit ·{" "}
+              <kbd className="rounded bg-surface-2 px-1 font-mono text-foreground">A</kbd> approve ·{" "}
+              <kbd className="rounded bg-surface-2 px-1 font-mono text-foreground">R</kbd> request changes
+            </p>
+          )}
+        </div>
+      </div>
 
       {plan && !readOnly && (
         <ActionBar

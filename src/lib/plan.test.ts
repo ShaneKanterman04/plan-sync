@@ -7,6 +7,7 @@ import {
   db,
   deleteWebhook,
   ensurePlan,
+  getAgentActivity,
   getMessages,
   getPlan,
   getPluginRun,
@@ -19,6 +20,7 @@ import {
   setStatus,
   staleReasons,
   toggleReaction,
+  updatePluginRun,
 } from "@/lib/db";
 
 describe("status transitions", () => {
@@ -407,5 +409,62 @@ describe("webhooks", () => {
     expect(malformed.active).toBe(true);
     expect(events.events).toEqual(["plan", "proof"]);
     expect(events.active).toBe(false);
+  });
+});
+
+describe("agent activity", () => {
+  test("returns no activity for a workspace with no plan", () => {
+    const activity = getAgentActivity("aa-missing");
+    expect(activity).toEqual({
+      at: null,
+      source: null,
+      liveState: null,
+      agentName: null,
+    });
+  });
+
+  test("derives the latest activity from the most recent agent artifact", () => {
+    const ws = "aa-derive";
+    const plan = putPlanBody({ workspace: ws, bodyMd: "# plan", author: "agent" });
+    const message = addMessage({ workspace: ws, author: "agent", body: "on it" });
+
+    const activity = getAgentActivity(ws);
+    // The message was written after the plan, so it's the freshest signal.
+    expect(activity.source).toBe("message");
+    expect(activity.at).toBe(message.createdAt);
+    expect(message.createdAt > plan.updatedAt).toBe(true);
+    expect(activity.liveState).toBeNull();
+  });
+
+  test("ignores human-authored messages", () => {
+    const ws = "aa-human";
+    const plan = putPlanBody({ workspace: ws, bodyMd: "# plan", author: "agent" });
+    addMessage({ workspace: ws, author: "human", body: "please change X" });
+
+    const activity = getAgentActivity(ws);
+    // The human reply is newer but doesn't count — the agent's plan write wins.
+    expect(activity.source).toBe("plan");
+    expect(activity.at).toBe(plan.updatedAt);
+  });
+
+  test("surfaces a live plugin run's state and agent name", () => {
+    const ws = "aa-live";
+    createPluginRun({ workspace: ws, agentName: "claude", state: "implementing" });
+
+    const activity = getAgentActivity(ws);
+    expect(activity.liveState).toBe("implementing");
+    expect(activity.agentName).toBe("claude");
+    expect(activity.source).toBe("run");
+    expect(activity.at).not.toBeNull();
+  });
+
+  test("a finished run is not treated as live", () => {
+    const ws = "aa-done";
+    const run = createPluginRun({ workspace: ws, agentName: "claude", state: "implementing" });
+    updatePluginRun({ workspace: ws, id: run.id, state: "done", endedAt: new Date().toISOString() });
+
+    const activity = getAgentActivity(ws);
+    expect(activity.liveState).toBeNull();
+    expect(activity.agentName).toBeNull();
   });
 });

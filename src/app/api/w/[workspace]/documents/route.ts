@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
-import { listWorkspaceDocuments, putDocument } from "@/lib/db";
+import { getAgentActivity, listWorkspaceDocuments, putDocument } from "@/lib/db";
 import { broadcast } from "@/lib/events";
 import { fail, readWorkspace } from "@/lib/http";
 import { putDocumentSchema } from "@/lib/schema";
@@ -14,7 +14,10 @@ type Ctx = { params: Promise<{ workspace: string }> };
 export async function GET(_req: Request, { params }: Ctx) {
   try {
     const workspace = await readWorkspace(params);
-    return NextResponse.json({ documents: listWorkspaceDocuments(workspace) });
+    return NextResponse.json({
+      documents: listWorkspaceDocuments(workspace),
+      agentActivity: getAgentActivity(workspace),
+    });
   } catch (error) {
     return fail(error);
   }

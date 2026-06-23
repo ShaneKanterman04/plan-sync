@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { WorkspaceSummary } from "@/lib/types";
 import { api, timeLabel } from "@/components/api";
+import { AgentActivity } from "@/components/AgentActivity";
 import { DocumentTypeBadge } from "@/components/DocumentTypeBadge";
 import { LoadError } from "@/components/LoadError";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -73,6 +74,12 @@ function WorkspaceCard({ w }: { w: WorkspaceSummary }) {
           )}
         </div>
 
+        {w.agentActivity && (
+          <div className="mt-1.5">
+            <AgentActivity variant="inline" activity={w.agentActivity} />
+          </div>
+        )}
+
         {w.staleReasons.length > 0 && (
           <div className="mt-1.5 text-[0.8125rem] font-semibold text-warning">
             Stale review metadata
@@ -120,7 +127,7 @@ export default function Home() {
   return (
     <main
       id="main"
-      className="mx-auto min-h-[100dvh] max-w-2xl overflow-x-clip px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-10"
+      className="mx-auto min-h-[100dvh] max-w-2xl overflow-x-clip px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-10 lg:max-w-5xl"
     >
       <header className="sticky top-0 z-10 -mx-4 mb-4 border-b border-border-strong bg-surface/90 px-[max(1rem,env(safe-area-inset-left))] py-3 shadow-raised backdrop-blur">
         <div className="flex items-start justify-between gap-2">
@@ -159,7 +166,7 @@ export default function Home() {
         <h2 className="sr-only">Workspaces</h2>
 
         {workspaces === null && (
-          <ul className="space-y-2" aria-hidden="true">
+          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
             {[0, 1, 2].map((i) => (
               <li
                 key={i}
@@ -177,7 +184,7 @@ export default function Home() {
         )}
 
         {workspaces && workspaces.length > 0 && (
-          <ul className="space-y-2">
+          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {workspaces.map((w) => (
               <WorkspaceCard key={w.workspace} w={w} />
             ))}

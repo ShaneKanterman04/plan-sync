@@ -4,6 +4,7 @@ import path from "node:path";
 import { assertTransition } from "@/lib/schema";
 import {
   REACTION_EMOJIS,
+  type AgentActivity,
   type Author,
   type Document,
   type DocumentSummary,
@@ -435,6 +436,87 @@ function getReactionsByMessage(
   return result;
 }
 
+// --- agent activity ---
+
+// Plugin-run states that mean an agent is still actively working (not yet ended).
+const ACTIVE_RUN_STATES: PluginRunState[] = [
+  "waiting",
+  "approved",
+  "preflight",
+  "implementing",
+];
+
+/**
+ * When an agent last did anything in a workspace. Derived from real artifacts
+ * (the `plugin_runs` table is optional and often unused), so this works even
+ * when agents only write plans/messages/documents: it takes the most recent of
+ * the agent-authored plan write, message, document message, and published
+ * document. If a plugin run is currently in flight, its live state and agent
+ * name are surfaced so the UI can show "implementing…" instead of a stale time.
+ */
+export function getAgentActivity(workspace: string): AgentActivity {
+  const candidates: Array<{ at: string; source: NonNullable<AgentActivity["source"]> }> = [];
+
+  const plan = db
+    .prepare("SELECT updated_at, updated_by FROM plans WHERE workspace = ?")
+    .get(workspace) as any;
+  if (plan?.updated_by === "agent" && plan.updated_at) {
+    candidates.push({ at: plan.updated_at, source: "plan" });
+  }
+
+  const msg = db
+    .prepare("SELECT MAX(created_at) AS at FROM messages WHERE workspace = ? AND author = 'agent'")
+    .get(workspace) as any;
+  if (msg?.at) candidates.push({ at: msg.at, source: "message" });
+
+  const docMsg = db
+    .prepare(
+      "SELECT MAX(created_at) AS at FROM document_messages WHERE workspace = ? AND author = 'agent'",
+    )
+    .get(workspace) as any;
+  if (docMsg?.at) candidates.push({ at: docMsg.at, source: "message" });
+
+  const doc = db
+    .prepare("SELECT MAX(updated_at) AS at FROM documents WHERE workspace = ? AND updated_by = 'agent'")
+    .get(workspace) as any;
+  if (doc?.at) candidates.push({ at: doc.at, source: "document" });
+
+  let best: { at: string; source: NonNullable<AgentActivity["source"]> } | null = null;
+  for (const candidate of candidates) {
+    if (!best || candidate.at > best.at) best = candidate;
+  }
+
+  const placeholders = ACTIVE_RUN_STATES.map(() => "?").join(", ");
+  const liveRun = db
+    .prepare(
+      `SELECT agent_name, state, updated_at FROM plugin_runs
+       WHERE workspace = ? AND state IN (${placeholders})
+       ORDER BY updated_at DESC LIMIT 1`,
+    )
+    .get(workspace, ...ACTIVE_RUN_STATES) as any;
+
+  if (liveRun) {
+    // A live run wins the timestamp only if it's the freshest signal, but its
+    // state/name always surface so the UI can render the in-flight indicator.
+    if (!best || liveRun.updated_at > best.at) {
+      best = { at: liveRun.updated_at, source: "run" };
+    }
+    return {
+      at: best.at,
+      source: best.source,
+      liveState: liveRun.state,
+      agentName: liveRun.agent_name,
+    };
+  }
+
+  return {
+    at: best?.at ?? null,
+    source: best?.source ?? null,
+    liveState: null,
+    agentName: null,
+  };
+}
+
 // --- workspaces ---
 
 export function listWorkspaces(): WorkspaceSummary[] {
@@ -464,6 +546,7 @@ export function listWorkspaces(): WorkspaceSummary[] {
       lastMessageAt: s?.last ?? null,
       lastMessagePreview: m ? cleanLine(m.body, 80) : null,
       staleReasons: staleReasons(p),
+      agentActivity: getAgentActivity(p.workspace),
     };
   });
 }

@@ -183,6 +183,23 @@ export type Revision = {
   createdAt: string;
 };
 
+/**
+ * When an agent last touched a workspace, derived from the most recent
+ * agent-authored artifact (plan write, message, or published document). If a
+ * plugin run is currently in flight, `liveState`/`agentName` describe it so the
+ * UI can show a live "implementing…" indicator rather than just a timestamp.
+ */
+export type AgentActivity = {
+  /** ISO timestamp of the agent's most recent activity, or null if none yet. */
+  at: string | null;
+  /** Which artifact the latest activity came from. */
+  source: "run" | "plan" | "message" | "document" | null;
+  /** Non-null only while a plugin run is actively in flight. */
+  liveState: PluginRunState | null;
+  /** The running agent's name, when a live run is in flight. */
+  agentName: string | null;
+};
+
 export type WorkspaceSummary = {
   workspace: string;
   title: string;
@@ -199,6 +216,7 @@ export type WorkspaceSummary = {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   staleReasons: string[];
+  agentActivity: AgentActivity;
 };
 
 /** The cheap snapshot agents poll to detect a human response. */
