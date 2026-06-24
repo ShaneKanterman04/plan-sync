@@ -259,4 +259,52 @@ describe("MessageThread", () => {
 
     expect(screen.queryByRole("separator", { name: "New messages" })).toBeNull();
   });
+
+  test("renders the discussion feed as a height-capped scroll region", () => {
+    render(
+      <MessageThread
+        messages={[msg("m1", "hi")]}
+        onSend={jest.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const log = screen.getByRole("log");
+    expect(log).toHaveClass("overflow-y-auto");
+    expect(log).toHaveClass("max-h-[60vh]");
+  });
+
+  test("parks the capped feed at the newest message on first render", () => {
+    // jsdom has no layout, so drive scrollHeight and spy on the scrollTop the
+    // effect assigns. Restore the prototype descriptors afterwards.
+    const proto = HTMLElement.prototype;
+    const origHeight = Object.getOwnPropertyDescriptor(proto, "scrollHeight");
+    const origTop = Object.getOwnPropertyDescriptor(proto, "scrollTop");
+    const setSpy = jest.fn();
+    let stored = 0;
+    Object.defineProperty(proto, "scrollHeight", { configurable: true, get: () => 480 });
+    Object.defineProperty(proto, "scrollTop", {
+      configurable: true,
+      get: () => stored,
+      set: (v: number) => {
+        stored = v;
+        setSpy(v);
+      },
+    });
+
+    try {
+      render(
+        <MessageThread
+          messages={[msg("m1", "one"), msg("m2", "two"), msg("m3", "three")]}
+          onSend={jest.fn().mockResolvedValue(undefined)}
+        />,
+      );
+      // The feed was scrolled to its full height (i.e. to the newest message).
+      expect(setSpy).toHaveBeenCalledWith(480);
+    } finally {
+      if (origHeight) Object.defineProperty(proto, "scrollHeight", origHeight);
+      else delete (proto as unknown as Record<string, unknown>).scrollHeight;
+      if (origTop) Object.defineProperty(proto, "scrollTop", origTop);
+      else delete (proto as unknown as Record<string, unknown>).scrollTop;
+    }
+  });
 });

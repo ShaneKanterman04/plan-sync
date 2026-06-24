@@ -22,6 +22,7 @@ export function MessageThread({
   const [busy, setBusy] = useState(false);
   const [kindFilter, setKindFilter] = useState<MessageKind | "all">("all");
   const lastMessageRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
   const visibleMessages =
     kindFilter === "all" ? messages : messages.filter((message) => message.kind === kindFilter);
 
@@ -39,12 +40,11 @@ export function MessageThread({
       ? -1
       : visibleMessages.findIndex((message) => message.createdAt > firstUnreadAt);
 
-  // Scroll the newest message into view whenever a message is added — both when
-  // the human sends one and when SSE/polling delivers an agent reply. Keyed on
-  // the message count so a plain re-render with the same messages is a no-op.
-  // Skip the FIRST run so opening a plan lands at the top (on the plan body),
-  // not deep at the bottom of a long discussion; only auto-scroll for messages
-  // that arrive after mount.
+  // Keep the newest message readable without forcing the human to scroll the
+  // whole page through a long history. The feed is height-capped with its own
+  // scroll region (see the role="log" container below); this effect parks it on
+  // the latest message. Keyed on the message count so a plain re-render with the
+  // same messages is a no-op.
   // Respect reduced-motion: CSS cannot reach the scrollIntoView argument, so we
   // read the preference here. matchMedia is undefined in some environments
   // (e.g. jsdom), so guard it and fall back to a smooth scroll.
@@ -53,14 +53,22 @@ export function MessageThread({
     if (messages.length === 0) return;
     const prev = prevCount.current;
     prevCount.current = messages.length;
-    // First non-empty render establishes the baseline without scrolling (so the
-    // page opens on the plan body, not the bottom of a long thread). This is
-    // also resilient to Strict Mode's double-invoked mount, since the second
-    // invoke sees an unchanged count.
-    if (prev === null || messages.length <= prev) return;
     const prefersReducedMotion =
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    // First non-empty render: jump the feed's OWN scroll position to the bottom
+    // so the newest messages are visible immediately. Moving the container's
+    // scrollTop (not the window) means the page still opens at the top on the
+    // plan body, not deep in the discussion. Resilient to Strict Mode's
+    // double-invoked mount: the second invoke sees an unchanged count.
+    if (prev === null) {
+      const log = logRef.current;
+      if (log) log.scrollTop = log.scrollHeight;
+      return;
+    }
+    // Afterwards, follow only genuinely new messages (a human send or an SSE
+    // reply), scrolling them into view within the capped feed.
+    if (messages.length <= prev) return;
     lastMessageRef.current?.scrollIntoView({
       behavior: prefersReducedMotion ? "auto" : "smooth",
       block: "nearest",
@@ -107,10 +115,11 @@ export function MessageThread({
         </select>
       </div>
       <div
+        ref={logRef}
         role="log"
         aria-live="polite"
         aria-relevant="additions"
-        className="space-y-2"
+        className="-mx-1 max-h-[60vh] space-y-2 overflow-y-auto overscroll-contain px-1 [scrollbar-gutter:stable]"
       >
         {messages.length === 0 && (
           <p aria-live="polite" className="text-sm text-muted">
